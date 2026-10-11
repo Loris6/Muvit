@@ -1,0 +1,15 @@
+{
+  "name": "Muvit – Mobilität für Magdeburg",
+  "short_name": "Muvit",
+  "description": "Verbindungen, Echtzeit-Abfahrten, Live-Karte und KI-Assistent für Magdeburg und ganz Deutschland.",
+  "lang": "de",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#090A12",
+  "theme_color": "#5B45FF",
+  "icons": [
+    { "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
