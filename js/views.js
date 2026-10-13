@@ -332,7 +332,7 @@
   function legHTML(l, i) {
     const c = M.routeColor(l.line);
     const n = l.stops.length;
-    return '<div class="vb-leg" data-leg="' + i + '" style="--c:' + c + '"><div class="vb-rail"></div>' +
+    return '<div class="vb-leg" data-leg="' + i + '" style="--c:' + c + ';--dc:' + M.stopDotColor(c) + '"><div class="vb-rail"></div>' +
       stopRowHTML(l.from, c, i + ':f', { realtime: l.realtime }) +
       '<div class="vb-body"><div class="vb-line"><span class="bds" data-trip="' + i + '">' + C.badges(l.line) + '</span><span class="dir">nach ' + esc(l.headsign || l.to.name) + '</span></div>' +
         (l.wheelchair ? '<div class="wbox" title="Barrierefrei">' + icon('wheel') + '</div>' : '') +
@@ -516,7 +516,7 @@
         if (next < 0) next = T.length;
         const c = M.routeColor(t.line);
         const wc = t.wheelchair ? ' • ' + icon('wheel') : '';
-        let h = '<div class="trip-list" style="--c:' + c + '">';
+        let h = '<div class="trip-list" style="--c:' + c + ';--dc:' + M.stopDotColor(c) + '">';
         t.stops.forEach((s, i) => {
           const past = i < next, isNext = i === next;
           const tm = i === t.stops.length - 1 ? (s.arr || s.dep) : (s.dep || s.arr);
@@ -533,11 +533,12 @@
             ss = '<span class="' + x.cls + '">' + txt + '</span>' + (wc ? '<span class="c-gray" style="display:inline-flex;gap:6px;align-items:center">' + wc + '</span>' : '');
             const mins = M.minsUntil(tm);
             a = '<span class="' + (s.cancelled ? 'c-red' : mins <= 3 ? 'c-orange' : 'c-green') + '">' + (mins <= 0 ? 'Jetzt' : 'In ' + mins + ' Min') + '</span>';
-            b = 'Um ' + M.fmtTime(pl || tm) + (d ? ' (vsl. ' + M.fmtTime(tm) + ')' : '');
+            b = 'Um ' + M.fmtTime(pl || tm) + (d ? '<span class="vsl"> (vsl. ' + M.fmtTime(tm) + ')</span>' : '');
           }
-          const up = i > 0 ? '<span class="rail up' + (i <= next ? ' c' : '') + '"></span>' : '';
-          const dn = i < t.stops.length - 1 ? '<span class="rail dn' + (i + 1 <= next ? ' c' : '') + '"></span>' : '';
-          h += '<button class="trow' + (past ? ' past' : '') + (isNext ? ' next' : '') + '" data-i="' + i + '">' + up + dn + '<span class="dot"></span>' +
+          const up = i > 0 ? '<span class="rail up' + (i <= next ? ' done' : '') + '"></span>' : '';
+          const dn = i < t.stops.length - 1 ? '<span class="rail dn' + (i + 1 <= next ? ' done' : '') + '"></span>' : '';
+          const big = isNext || i === 0 || i === t.stops.length - 1;
+          h += '<button class="trow' + (past ? ' past' : '') + (isNext ? ' next' : '') + '" data-i="' + i + '">' + up + dn + '<span class="dot' + (big ? ' big' : '') + '"></span>' +
             '<div style="min-width:0"><div class="nm"><span>' + esc(s.name) + '</span>' + (!past ? C.bstg(s.platform) : '') + '</div><div class="ss">' + ss + '</div></div>' +
             '<div class="r"><div class="a">' + a + '</div><div class="b">' + b + '</div></div></button>';
         });

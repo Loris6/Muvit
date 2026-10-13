@@ -228,6 +228,8 @@
     return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
   };
   M.textOn = (hex) => (M.luminance(hex) > 0.6 ? '#131418' : '#FFFFFF');
+  /** Farbe der Haltestellenpunkte auf einer Linie: weiß, auf hellen Linien (z. B. Tram 3, gelb) schwarz */
+  M.stopDotColor = (hex) => (/^#[0-9a-f]{6}$/i.test(hex || '') && M.luminance(hex) > 0.55 ? '#000000' : '#FFFFFF');
   /** Linienfarbe im MVB-Stil: Trams farbig (eckig), Busse dunkel (rund), Züge nach Produkt */
   M.lineColor = function (name, mode, feedColor) {
     const n = String(name || '').trim();
