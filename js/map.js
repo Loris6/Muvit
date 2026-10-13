@@ -83,30 +83,49 @@
   }
   /** Fahrzeug-Plakette im Haltestellen-Stil: [Tram][4] bzw. (Bus)(73), z. B. veh|4|#8EC33B|#FFFFFF|tram */
   function vehicleImage(id) {
-    const [, label, bg, fg, mode] = id.split('|');
+    const [, label, bg, fg, mode, op] = id.split('|');
     const B = 20 * DPR, gap = 3 * DPR, padP = 3 * DPR, pad = 4 * DPR, bw = 1.2 * DPR;
     const meas = canvas(10, 10).getContext('2d');
     const numFont = '700 ' + (11 * DPR) + 'px Rubik, system-ui, sans-serif';
     meas.font = numFont;
-    const hasMode = mode === 'tram' || mode === 'bus';
+    const isTrain = mode === 'regio' || mode === 'fern';
+    const modeW = isTrain && op === 'db' ? Math.round(B * 34 / 24) : ['tram', 'bus', 'sbahn', 'ubahn', 'ferry', 'regio', 'fern'].includes(mode) ? B : 0;
     const lineW = Math.max(B, Math.ceil(meas.measureText(label).width) + 8 * DPR);
-    const W = (hasMode ? B + gap : 0) + lineW + padP * 2, H = B + padP * 2;
+    const W = (modeW ? modeW + gap : 0) + lineW + padP * 2, H = B + padP * 2;
     const c = canvas(W + pad * 2, H + pad * 2), x = c.getContext('2d');
+    const top = pad + padP;
     // dunkle Plakette als Hintergrund (Kontrast auf heller Karte)
     x.shadowColor = 'rgba(0,0,0,.35)'; x.shadowBlur = 3 * DPR; x.shadowOffsetY = 1 * DPR;
     roundRect(x, pad, pad, W, H, mode === 'bus' ? H / 2 : 7 * DPR); x.fillStyle = '#131418'; x.fill();
     x.shadowColor = 'transparent';
     const badge = (X, w, fill, round, text, font, color) => {
-      roundRect(x, X, pad + padP, w, B, round ? B / 2 : 4 * DPR); x.fillStyle = fill; x.fill();
+      roundRect(x, X, top, w, B, round ? B / 2 : 4 * DPR); x.fillStyle = fill; x.fill();
       x.lineWidth = bw; x.strokeStyle = 'rgba(255,255,255,.8)'; x.stroke();
+      if (!text) return;
       x.fillStyle = color; x.font = font; x.textAlign = 'center'; x.textBaseline = 'middle';
-      x.fillText(text, X + w / 2, pad + padP + B / 2 + DPR * 0.6);
+      x.fillText(text, X + w / 2, top + B / 2 + DPR * 0.6);
     };
+    const glyph = (X, name) => {
+      const path = M.icons[name]; if (!path || !window.Path2D) return;
+      const s = (B * 0.66) / 24;
+      x.save(); x.translate(X + B * 0.17, top + B * 0.17); x.scale(s, s); x.fillStyle = '#FFFFFF'; x.fill(new Path2D(path)); x.restore();
+    };
+    const small = '700 ' + (6.6 * DPR) + 'px Rubik, system-ui, sans-serif', big = '700 ' + (13 * DPR) + 'px Rubik, system-ui, sans-serif';
     let X = pad + padP;
-    if (hasMode) {
-      badge(X, B, mode === 'tram' ? '#BA2619' : '#4B1C76', mode === 'bus', mode === 'tram' ? 'Tram' : 'Bus', '700 ' + (6.6 * DPR) + 'px Rubik, system-ui, sans-serif', '#FFFFFF');
-      X += B + gap;
-    }
+    if (mode === 'tram') badge(X, B, '#BA2619', false, 'Tram', small, '#FFFFFF');
+    else if (mode === 'bus') badge(X, B, '#4B1C76', true, 'Bus', small, '#FFFFFF');
+    else if (mode === 'sbahn') badge(X, B, '#008D4F', true, 'S', big, '#FFFFFF');
+    else if (mode === 'ubahn') badge(X, B, '#115D91', false, 'U', big, '#FFFFFF');
+    else if (isTrain && op === 'db') {
+      // DB-Logo: weiß, roter Rahmen, rote Buchstaben
+      const u = B / 24;
+      roundRect(x, X + u, top + u, modeW - 2 * u, B - 2 * u, 3.6 * u); x.fillStyle = '#FFFFFF'; x.fill();
+      x.lineWidth = 2 * u; x.strokeStyle = '#EC0016'; x.stroke();
+      x.fillStyle = '#EC0016'; x.font = '700 ' + (14 * u) + 'px Arial, Helvetica, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.fillText('DB', X + modeW / 2, top + B / 2 + u);
+    } else if (isTrain) { badge(X, B, '#2B2C31', false, '', small, ''); glyph(X, 'train'); }
+    else if (mode === 'ferry') { badge(X, B, '#1C7FB0', false, '', small, ''); glyph(X, 'ferry'); }
+    if (modeW) X += modeW + gap;
     badge(X, lineW, bg, mode === 'bus', label, numFont, fg);
     return { width: c.width, height: c.height, data: x.getImageData(0, 0, c.width, c.height).data };
   }
@@ -165,7 +184,7 @@
     m.addLayer({ id: 'vehicles', type: 'symbol', source: 'vehicles',
       layout: {
         'icon-image': ['get', 'icon'], 'icon-allow-overlap': true, 'icon-ignore-placement': true,
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.62, 13, 0.85, 16, 1],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 8.5, 0.42, 10, 0.55, 12, 0.72, 14, 0.9, 16, 1],
         'symbol-sort-key': ['get', 'rank']
       } });
     refreshStopsSource();
@@ -219,7 +238,7 @@
         M.emit('vehicle:select', { tripId: f.properties.tripId, name: f.properties.name, mode: f.properties.mode, headsign: f.properties.to });
       } else if (f.layer.id === 'stops') {
         const g = Mp.stopGroups.get(f.properties.id);
-        if (g) stopPopup(g);
+        if (g) M.emit('place:action', { action: 'dep', place: { id: g.id, name: g.name, lat: g.lat, lon: g.lon, type: 'stop', src: g.src, area: g.area } });
       }
     });
     ['vehicles', 'stops'].forEach((l) => {
@@ -255,7 +274,13 @@
     if (!Mp.map || !coords || !coords.length) return;
     const b = new maplibregl.LngLatBounds(coords[0], coords[0]);
     coords.forEach((c) => b.extend(c));
-    Mp.map.fitBounds(b, Object.assign({ padding: Mp.padding(), duration: 900, maxZoom: 16.5 }, opts || {}));
+    // MapLibre addiert den bereits gesetzten Kartenrand (Sheet) – deshalb nur die Differenz übergeben
+    const want = Mp.padding(), cur = Mp.map.getPadding();
+    const pad = {};
+    ['top', 'bottom', 'left', 'right'].forEach((k) => { pad[k] = Math.max(0, (want[k] || 0) - (cur[k] || 0)); });
+    const o = Object.assign({ padding: pad, duration: 900, maxZoom: 16.5 }, opts || {});
+    if (!Mp.map.cameraForBounds(b, o)) { Mp.map.setPadding(want); o.padding = 0; }
+    Mp.map.fitBounds(b, o);
   };
   Mp.bounds = function (grow) {
     const b = Mp.map.getBounds(); const g = grow || 0;
@@ -287,7 +312,7 @@
       Mp._me = new maplibregl.Marker({ element: el }).setLngLat([p.lon, p.lat]).addTo(Mp.map);
     } else Mp._me.setLngLat([p.lon, p.lat]);
     updateMeAccuracy();
-    if (ev.first && !Mp._route && !Mp._userMoved) Mp.flyTo(p.lat, p.lon, 14.8, { duration: 1400 });
+    if (ev.first && !Mp._route && !Mp._userMoved && (!M.UI || M.UI.isRoot())) Mp.flyTo(p.lat, p.lon, 14.8, { duration: 1400 });
   }
   Mp.locate = async function () {
     try {
@@ -350,15 +375,6 @@
     Mp._popup = new maplibregl.Popup({ offset: 16, closeButton: false, maxWidth: '280px' }).setLngLat([lon, lat]).setDOMContent(el).addTo(Mp.map);
     if (bind) bind(el, () => Mp._popup && Mp._popup.remove());
   }
-  function stopPopup(g) {
-    popup(g.lat, g.lon,
-      '<div class="pop-title">' + M.icon('hOutline') + M.esc(g.name) + '</div>' +
-      '<div class="pop-actions"><button class="p" data-a="dep">Abfahrten</button><button data-a="from">Von hier</button><button data-a="to">Nach hier</button></div>',
-      (el, close) => el.addEventListener('click', (e) => {
-        const a = e.target.closest('button'); if (!a) return;
-        close(); M.emit('place:action', { action: a.dataset.a, place: Object.assign({ type: 'stop' }, g) });
-      }));
-  }
   function placePopup(lat, lon) {
     const place = { id: lat.toFixed(6) + ',' + lon.toFixed(6), name: 'Markierter Ort', lat, lon, type: 'coord', src: 'device' };
     popup(lat, lon,
@@ -382,19 +398,30 @@
 
   /* ---------------- Live-Fahrzeuge ---------------- */
   let vehTimer = null, lastFetch = 0;
-  function scheduleVehicles(now) {
+  function scheduleVehicles(now, force) {
     clearTimeout(vehTimer);
     if (!Mp.showVehicles || !Mp.map) return;
-    vehTimer = setTimeout(fetchVehicles, now ? 50 : 30000);
+    vehTimer = setTimeout(() => fetchVehicles(force), now ? 50 : 30000);
   }
-  async function fetchVehicles() {
+  /** Abfragegebiet: immer die ganze Stadt (plus Kartenausschnitt, solange der nicht riesig ist) */
+  function vehicleBox() {
+    const v = Mp.bounds(0.15), c = Mp.center(), cb = M.cityBox(c.lat, c.lon);
+    const area = (b) => (b.maxLat - b.minLat) * (b.maxLon - b.minLon);
+    if (area(v) > area(cb) * 3) return cb;
+    return { name: cb.name, minLat: Math.min(v.minLat, cb.minLat), maxLat: Math.max(v.maxLat, cb.maxLat), minLon: Math.min(v.minLon, cb.minLon), maxLon: Math.max(v.maxLon, cb.maxLon) };
+  }
+  const inside = (a, b) => a.minLat >= b.minLat && a.maxLat <= b.maxLat && a.minLon >= b.minLon && a.maxLon <= b.maxLon;
+  async function fetchVehicles(force) {
     const m = Mp.map;
     if (!m || !Mp.showVehicles) return;
     if (document.hidden) { scheduleVehicles(); return; }
-    if (m.getZoom() < 11) { Mp.vehSegs.clear(); Mp.vehVisible = []; M.emit('vehicles:update', { list: [], tooFar: true }); scheduleVehicles(); return; }
+    if (m.getZoom() < 8.5) { Mp.vehSegs.clear(); Mp.vehVisible = []; Mp._vehBox = null; M.emit('vehicles:update', { list: [], tooFar: true }); scheduleVehicles(); return; }
+    // Kartenbewegung innerhalb des schon geladenen Gebiets: nichts neu laden
+    if (!force && Mp._vehBox && Date.now() - lastFetch < 25000 && inside(Mp.bounds(0), Mp._vehBox)) { scheduleVehicles(); return; }
     const token = ++Mp.vehAbort;
+    const box = vehicleBox();
     try {
-      const segs = await M.Transit.vehicles(Mp.bounds(0.15), m.getZoom());
+      const segs = await M.Transit.vehicles(box, Math.max(14, m.getZoom()));
       if (token !== Mp.vehAbort) return;
       const byTrip = new Map();
       segs.forEach((s) => {
@@ -406,6 +433,7 @@
       });
       byTrip.forEach((arr) => arr.sort((a, b) => a.dep - b.dep));
       Mp.vehSegs = byTrip;
+      Mp._vehBox = box; Mp.vehArea = box.name;
       lastFetch = Date.now();
       M.emit('vehicles:loaded', { count: byTrip.size });
     } catch (e) {
@@ -470,7 +498,7 @@
             type: 'Feature', geometry: { type: 'Point', coordinates: [v.pos.lon, v.pos.lat] },
             properties: {
               tripId: v.tripId, name: L.name, mode: L.mode, color: L.color, to: v.seg.to || '',
-              icon: 'veh|' + L.name.slice(0, 7) + '|' + L.color + '|' + L.text + '|' + L.mode,
+              icon: 'veh|' + L.name.slice(0, 7) + '|' + L.color + '|' + L.text + '|' + L.mode + '|' + (M.isDBLine(L) ? 'db' : ''),
               bearing: v.pos.bearing, moving: v.moving, rank: RANK[L.mode] || 1
             }
           };
@@ -483,10 +511,10 @@
   }
   Mp.setShowVehicles = function (on) {
     Mp.showVehicles = on;
-    if (on) scheduleVehicles(true); else { Mp.vehSegs.clear(); clearTimeout(vehTimer); }
+    if (on) scheduleVehicles(true, true); else { Mp.vehSegs.clear(); Mp._vehBox = null; clearTimeout(vehTimer); }
   };
   Mp.setVehicleModes = function (set) { Mp.vehModes = set && set.size ? set : null; };
-  Mp.refreshVehicles = () => scheduleVehicles(true);
+  Mp.refreshVehicles = () => scheduleVehicles(true, true);
   Mp.reloadView = () => { loadStopsInView(); scheduleVehicles(true); };
 
   /* ---------------- Routen & Linienverläufe ---------------- */

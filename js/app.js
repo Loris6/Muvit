@@ -31,7 +31,12 @@
     M.on('place:action', ({ action, place }) => {
       if (action === 'from') { M.state.from = place; M.emit('state'); if (M.state.to) App.search(); else UI.home(); }
       else if (action === 'to') { M.state.to = place; M.emit('state'); App.search(); }
-      else if (action === 'dep') UI.open('stop', { stop: place });
+      else if (action === 'dep') {
+        // Haltestelle auf der Karte: Abfahrten direkt zeigen (ersetzt eine schon offene Haltestelle)
+        const top = UI.stack[UI.stack.length - 1];
+        const same = top && top.id === 'stop' && top.params.stop && top.params.stop.name === place.name;
+        if (!same) UI.open('stop', { stop: place }, top && top.id === 'stop' ? { replace: true } : undefined);
+      }
       else if (action === 'nearby') UI.open('departures', { tab: 'near' });
     });
     M.on('vehicle:select', (v) => UI.open('trip', { tripId: v.tripId }));

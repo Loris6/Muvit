@@ -327,20 +327,21 @@
   function stopRowHTML(ev, color, key, opts) {
     opts = opts || {};
     return '<div class="vb-stop" style="--c:' + color + '"><div class="vb-time">' + (ev.time ? M.fmtTime(ev.time) : '') + delayHTML(ev.delay, opts.realtime) + '</div>' +
-      '<span class="vb-node"></span><div class="vb-name" data-stop="' + key + '">' + esc(ev.name) + '</div>' + C.bstg(ev.platform) + '</div>';
+      '<span class="vb-node"></span><div class="vb-name" data-stop="' + key + '">' + esc(ev.name) + '</div>' + C.bstg(ev.platform, opts.mode, ev.plannedPlatform) + '</div>';
   }
   function legHTML(l, i) {
     const c = M.routeColor(l.line);
     const n = l.stops.length;
     return '<div class="vb-leg" data-leg="' + i + '" style="--c:' + c + ';--dc:' + M.stopDotColor(c) + '"><div class="vb-rail"></div>' +
-      stopRowHTML(l.from, c, i + ':f', { realtime: l.realtime }) +
+      stopRowHTML(l.from, c, i + ':f', { realtime: l.realtime, mode: l.line.mode }) +
       '<div class="vb-body"><div class="vb-line"><span class="bds" data-trip="' + i + '">' + C.badges(l.line) + '</span><span class="dir">nach ' + esc(l.headsign || l.to.name) + '</span></div>' +
         (l.wheelchair ? '<div class="wbox" title="Barrierefrei">' + icon('wheel') + '</div>' : '') +
-        l.alerts.map((a) => '<div class="vb-alert">' + icon('warnFill') + '<div>' + esc(a.title) + (a.text ? '<small>' + esc(a.text.slice(0, 220)) + '</small>' : '') + '</div></div>').join('') +
+        l.alerts.map((a) => '<div class="vb-alert">' + icon('warnFill') + '<div>' + C.richText(a.title, l.line, l.from.name) + (a.text ? '<small>' + esc(a.text.slice(0, 220)) + '</small>' : '') + '</div></div>').join('') +
+        (l.notes || []).map((n) => '<div class="vb-alert note">' + icon('infoFill') + '<div>' + C.richText(n.text, l.line, l.from.name) + '</div></div>').join('') +
         (n ? '<button class="vb-tog" data-tog="' + i + '">' + icon('down') + n + (n === 1 ? ' Haltestelle' : ' Haltestellen') + '</button>' +
           '<div class="vb-inter">' + l.stops.map((s) => '<div class="ist' + (s.cancelled ? ' cx' : '') + '"><div class="n"><span>' + esc(s.name) + '</span></div><div class="t">' + M.fmtTime(s.arr || s.dep || s.arrPlanned || s.depPlanned) + '</div></div>').join('') + '</div>' : '') +
       '</div>' +
-      stopRowHTML(l.to, c, i + ':t', { realtime: l.realtime }) +
+      stopRowHTML(l.to, c, i + ':t', { realtime: l.realtime, mode: l.line.mode }) +
       '<div class="vb-dur" style="top:50%">' + Math.max(1, Math.round(l.duration)) + '<br>Min.</div></div>';
   }
   function walkHTML(l, first) {
@@ -368,7 +369,12 @@
             if (i === legs.length - 1) { h += placeRowHTML(l.to, i + ':t'); refs[i + ':t'] = l.to; }
             return;
           }
-          if (i > 0 && !legs[i - 1].walk) h += '<div class="vb-walk"><span class="wl">' + Math.max(0, M.delayMin(l.from.time, legs[i - 1].to.time)) + ' Min.</span>Umstieg · ' + Math.max(0, M.delayMin(l.from.time, legs[i - 1].to.time)) + ' Min.</div>';
+          if (i > 0 && !legs[i - 1].walk) {
+            const gap = Math.max(0, M.delayMin(l.from.time, legs[i - 1].to.time));
+            h += l.interline
+              ? '<div class="vb-walk thru"><span class="wl">' + gap + ' Min.</span><span>Sitzen bleiben – das Fahrzeug fährt weiter als <span class="ref">' + C.badges(l.line, { sm: true }) + '</span></span></div>'
+              : '<div class="vb-walk"><span class="wl">' + gap + ' Min.</span>Umstieg · ' + gap + ' Min.</div>';
+          }
           h += legHTML(l, i);
           refs[i + ':f'] = l.from; refs[i + ':t'] = l.to;
         });
@@ -413,7 +419,7 @@
         else if (a === 'share') {
           const a0 = j.legs[0].from, b0 = j.legs[j.legs.length - 1].to;
           const text = 'Muvit · ' + a0.name + ' → ' + b0.name + '\n' + M.fmtDayTime(a0.time) + ' – ' + M.fmtTime(b0.time) + ' (' + M.fmtDur(j.duration) + ')\n' +
-            j.legs.filter((l) => !l.walk).map((l) => '• ' + M.fmtTime(l.from.time) + ' ' + M.modeInfo(l.line.mode).short + ' ' + l.line.full + ' → ' + l.headsign + ' ab ' + l.from.name + (l.from.platform ? ' (' + C.platform(l.from.platform) + ')' : '')).join('\n');
+            j.legs.filter((l) => !l.walk).map((l) => '• ' + M.fmtTime(l.from.time) + ' ' + M.modeInfo(l.line.mode).short + ' ' + l.line.full + ' → ' + l.headsign + ' ab ' + l.from.name + (l.from.platform ? ' (' + C.platform(l.from.platform, l.line.mode) + ')' : '')).join('\n');
           if (navigator.share) navigator.share({ title: 'Meine Verbindung', text }).catch(() => {});
           else if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => M.toast('Verbindung kopiert'));
         } else if (a === 'ai') {
@@ -516,7 +522,9 @@
         if (next < 0) next = T.length;
         const c = M.routeColor(t.line);
         const wc = t.wheelchair ? ' • ' + icon('wheel') : '';
-        let h = '<div class="trip-list" style="--c:' + c + ';--dc:' + M.stopDotColor(c) + '">';
+        const at = t.stops[Math.min(next, t.stops.length - 1)];
+        const info = C.infoLines({ alerts: t.alerts, notes: t.notes, line: t.line, stop: at }, 0, { max: 3 });
+        let h = (info ? '<div class="trip-info">' + info + '</div>' : '') + '<div class="trip-list" style="--c:' + c + ';--dc:' + M.stopDotColor(c) + '">';
         t.stops.forEach((s, i) => {
           const past = i < next, isNext = i === next;
           const tm = i === t.stops.length - 1 ? (s.arr || s.dep) : (s.dep || s.arr);
@@ -539,10 +547,12 @@
           const dn = i < t.stops.length - 1 ? '<span class="rail dn' + (i + 1 <= next ? ' done' : '') + '"></span>' : '';
           const big = isNext || i === 0 || i === t.stops.length - 1;
           h += '<button class="trow' + (past ? ' past' : '') + (isNext ? ' next' : '') + '" data-i="' + i + '">' + up + dn + '<span class="dot' + (big ? ' big' : '') + '"></span>' +
-            '<div style="min-width:0"><div class="nm"><span>' + esc(s.name) + '</span>' + (!past ? C.bstg(s.platform) : '') + '</div><div class="ss">' + ss + '</div></div>' +
+            '<div style="min-width:0"><div class="nm"><span>' + esc(s.name) + '</span>' + (!past ? C.bstg(s.platform, t.line.mode, s.plannedPlatform) : '') + '</div><div class="ss">' + ss + '</div></div>' +
             '<div class="r"><div class="a">' + a + '</div><div class="b">' + b + '</div></div></button>';
         });
-        h += '</div><div class="trip-foot">' + icon('live') + (t.realtime ? 'Echtzeitdaten' : 'Fahrplandaten') + ' · aktualisiert ' + M.fmtTime(st.updated || new Date()) + '</div>';
+        h += '</div>';
+        if (t.continues) h += '<div class="trip-info cont"><div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">Das Fahrzeug fährt ab ' + esc(t.continues.at) + ' weiter als <span class="ref">' + C.badges(t.continues.line, { sm: true }) + '</span> nach ' + esc(t.continues.headsign) + '</span><span></span></div></div>';
+        h += '<div class="trip-foot">' + icon('live') + (t.realtime ? 'Echtzeitdaten' : 'Fahrplandaten') + ' · aktualisiert ' + M.fmtTime(st.updated || new Date()) + '</div>';
         const keep = ctx.body.scrollTop;
         ctx.body.innerHTML = h;
         ctx.body.scrollTop = keep;
@@ -624,9 +634,10 @@
         const shown = all.filter((x) => !st.off.includes(x.line.mode));
         listBox.innerHTML = shown.length ? shown.map((x, i) => C.depRow(x, i)).join('') : C.empty('Keine Abfahrten', 'In nächster Zeit fährt hier nichts ab.');
         bindAll(listBox, '.dep', (b) => { const x = shown[+b.dataset.i]; UI.open('trip', { tripId: x.tripId, src: x.src, line: x.line, focusStop: stop.name }); });
-        bindAll(listBox, '.alert-line', (b) => {
+        bindAll(listBox, '.alert-line[data-alert]', (b) => {
           const [i, k] = b.dataset.alert.split(':').map(Number);
           const a = shown[i].alerts[k];
+          if (!a || !a.text) return;
           const n = b.nextElementSibling;
           if (n && n.classList.contains('alert-det')) { n.remove(); return; }
           b.insertAdjacentHTML('afterend', '<div class="alert-det">' + esc(a.text || a.title) + '</div>');
@@ -896,38 +907,63 @@
       const wasOn = M.Map.showVehicles;
       M.Map.setShowVehicles(true);
       ctx.cleanup(() => { if (!wasOn) M.Map.setShowVehicles(false); });
-      if (M.Map.map && (M.Map.map.getZoom() < 12.5 || M.Map.map.getZoom() > 15.2)) { const p = M.Geo.pos || M.Map.center(); M.Map.flyTo(p.lat, p.lon, 13.8); }
+      if (M.Map.map && !ctx.restoring) {
+        // ganze Stadt zeigen, damit alle Fahrzeuge zu sehen sind
+        const c = M.Map.center(), b = M.cityBox(c.lat, c.lon);
+        M.Map.fitCoords([[b.minLon, b.minLat], [b.maxLon, b.maxLat]], { maxZoom: 13 });
+      }
       ctx.body.innerHTML =
         '<div class="kv" style="border-top:0"><div class="k">Live-Fahrzeuge<small data-live>Straßenbahnen, Busse und Züge in Echtzeit</small></div><label class="sw"><input type="checkbox" data-sw="veh" checked><span></span></label></div>' +
         '<div class="kv"><div class="k">Haltestellen<small>„H“-Zeichen auf der Karte</small></div><label class="sw"><input type="checkbox" data-sw="stops"' + (M.Map.showStops ? ' checked' : '') + '><span></span></label></div>' +
-        '<div class="lbl">Linien in der Umgebung</div><div data-list>' + C.skel(6) + '</div>';
+        '<div class="lbl" data-ltitle>Alle Linien</div><div data-list>' + C.skel(6) + '</div>';
       ctx.body.querySelectorAll('[data-sw]').forEach((i) => i.addEventListener('change', () => {
         if (i.dataset.sw === 'veh') { M.Map.setShowVehicles(i.checked); M.saveSettings({ showVehicles: i.checked }); }
         else { M.Map.setShowStops(i.checked); M.saveSettings({ showStops: i.checked }); }
       }));
       ctx.on('vehicles:update', (ev) => {
         const el = M.$('[data-live]', ctx.body);
-        if (el && ev) el.textContent = ev.tooFar ? 'Zum Anzeigen näher heranzoomen' : (ev.list.length + ' Fahrzeuge live im Kartenausschnitt');
+        if (el && ev) el.textContent = ev.tooFar ? 'Zum Anzeigen näher heranzoomen' : (ev.list.length + ' Fahrzeuge live ' + (M.Map.vehArea ? 'in ' + M.Map.vehArea : 'in der Umgebung'));
+        if (ev && !ev.tooFar && st.lines) { const n = liveOnly().length; if (n !== st.liveN) { st.liveN = n; draw(); } }
       });
+      /** Linien, die gerade fahren, aber an keiner abgefragten Haltestelle auftauchten */
+      function liveOnly() {
+        const known = new Set((st.lines || []).map((x) => x.line.mode + '|' + x.line.name)), out = new Map();
+        (M.Map.vehVisible || []).forEach((v) => {
+          const L = v.seg.line, k = L.mode + '|' + L.name;
+          if (!known.has(k) && !out.has(k)) out.set(k, { line: L, headsigns: v.seg.to ? [v.seg.to] : [], live: { tripId: v.tripId } });
+        });
+        return Array.from(out.values());
+      }
       const box = M.$('[data-list]', ctx.body);
+      const ORDER = { tram: 0, bus: 1, sbahn: 2, ubahn: 3, regio: 4, fern: 5, ferry: 6, other: 7 };
       function draw() {
-        const L = st.lines || [];
-        if (!L.length) { box.innerHTML = C.empty('Keine Linien gefunden', 'Bewege die Karte in ein anderes Gebiet.'); return; }
+        const L = (st.lines || []).concat(liveOnly()).sort((a, b) => ((ORDER[a.line.mode] ?? 9) - (ORDER[b.line.mode] ?? 9)) || a.line.name.localeCompare(b.line.name, 'de', { numeric: true }));
+        const t = M.$('[data-ltitle]', ctx.body);
+        if (t) t.textContent = 'Alle Linien' + (st.area ? ' in ' + st.area : '') + (L.length ? ' (' + L.length + ')' : '');
+        if (!L.length) { box.innerHTML = st.loading ? C.skel(6) : C.empty('Keine Linien gefunden', 'Bewege die Karte in ein anderes Gebiet.'); return; }
         let h = '', mode = null;
         L.forEach((x, i) => {
           if (x.line.mode !== mode) { mode = x.line.mode; h += '<div class="lbl" style="padding-top:16px">' + M.modeInfo(mode).label + '</div>'; }
-          h += C.lrow({ cls: 'lines', lead: C.badges(x.line), title: esc(x.headsigns.slice(0, 2).join(' – ')), sub: 'Nächste Abfahrt ' + esc(C.countdown(x.next.time).toLowerCase()) + ' ab ' + esc(x.next.stop.name) }, i);
+          const sub = x.next ? 'Nächste Abfahrt ' + esc(C.countdown(x.next.time).toLowerCase()) + ' ab ' + esc(x.next.stop.name) : 'Gerade unterwegs';
+          h += C.lrow({ cls: 'lines', lead: C.badges(x.line), title: esc(x.headsigns.slice(0, 2).join(' – ') || M.modeInfo(x.line.mode).label + ' ' + x.line.name), sub }, i);
         });
+        if (st.loading) h += C.skel(2);
         box.innerHTML = h;
-        bindAll(box, '.lrow', (el) => { const x = L[+el.dataset.i]; UI.open('trip', { tripId: x.next.tripId, src: x.next.src, line: x.line }); });
+        bindAll(box, '.lrow', (el) => {
+          const x = L[+el.dataset.i];
+          if (x.next) UI.open('trip', { tripId: x.next.tripId, src: x.next.src, line: x.line });
+          else UI.open('trip', { tripId: x.live.tripId, src: 'motis', line: x.line });
+        });
       }
       async function load() {
         box.innerHTML = C.skel(6);
+        const c = M.Map.center();
+        st.area = M.cityBox(c.lat, c.lon).name; st.loading = true; st.lines = null;
         try {
-          const c = M.Map.center();
-          st.lines = await M.Transit.linesNear(c.lat, c.lon);
+          const res = await M.Transit.linesCity(c.lat, c.lon, (part) => { if (ctx.alive()) { st.lines = part; draw(); } });
+          st.lines = res; st.loading = false;
           if (ctx.alive()) draw();
-        } catch (e) { if (ctx.alive()) { box.innerHTML = ''; box.appendChild(C.error(e, load)); } }
+        } catch (e) { st.loading = false; if (ctx.alive()) { box.innerHTML = ''; box.appendChild(C.error(e, load)); } }
       }
       if (st.lines) draw(); else load();
     }

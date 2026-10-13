@@ -25,6 +25,13 @@
     ]
   };
 
+  /** Stadtgebiet für Live-Fahrzeuge und Linienliste: Magdeburg, sonst ca. 18 × 18 km um den Punkt */
+  M.cityBox = function (lat, lon) {
+    const B = M.CONFIG.mdBBox;
+    if (lat > B.minLat - 0.15 && lat < B.maxLat + 0.15 && lon > B.minLon - 0.22 && lon < B.maxLon + 0.22) return Object.assign({ name: 'Magdeburg' }, B);
+    return { name: '', minLat: lat - 0.08, maxLat: lat + 0.08, minLon: lon - 0.13, maxLon: lon + 0.13 };
+  };
+
   /* ---------------- Events ---------------- */
   const listeners = {};
   M.on = function (evt, fn) { (listeners[evt] = listeners[evt] || []).push(fn); return () => M.off(evt, fn); };
@@ -209,6 +216,14 @@
     other: { label: 'Verkehrsmittel', short: 'Linie', badge: '', icon: 'route', color: '#59639F' }
   };
   M.modeInfo = (k) => M.MODES[k] || M.MODES.other;
+  /** Schienenverkehr hält an Gleisen, Tram und Bus an Bahnsteigen (Bstg.) */
+  M.isRail = (mode) => mode === 'sbahn' || mode === 'regio' || mode === 'fern' || mode === 'ubahn';
+  /** Zug der Deutschen Bahn? (ohne Betreiberangabe: Fernverkehr und Regio meist DB) */
+  M.isDBLine = function (line) {
+    if (!line || (line.mode !== 'regio' && line.mode !== 'fern')) return false;
+    const a = String(line.agency || '');
+    return !a || /\bDB\b|Deutsche Bahn/i.test(a);
+  };
 
   // Linienfarben der MVB Magdeburg (aus den Referenzbildern gemessen)
   const MVB_TRAM = { '1': '#A42D51', '2': '#59639F', '3': '#EAD248', '4': '#8EC33B', '5': '#AF843F', '6': '#663C88', '8': '#D9762F', '9': '#2C6352', '10': '#2C93B8' };
@@ -235,7 +250,7 @@
     const n = String(name || '').trim();
     if (mode === 'tram' && MVB_TRAM[n]) return { bg: MVB_TRAM[n], fg: '#FFFFFF' };
     if (mode === 'bus') return { bg: /^(SEV|EV)/i.test(n) || n === '48' ? BUS_REPLACEMENT : BUS_LINE, fg: '#FFFFFF' };
-    if (mode === 'sbahn') return { bg: '#000000', fg: '#FFFFFF' };
+    if (mode === 'sbahn') return { bg: validHex(feedColor) || '#008D4F', fg: '#FFFFFF' };
     if (mode === 'regio') return { bg: '#DE6459', fg: '#FFFFFF' };
     if (mode === 'fern') return { bg: '#FFFFFF', fg: '#BA2619' };
     const c = validHex(feedColor);
@@ -248,7 +263,6 @@
   M.routeColor = function (line) {
     if (!line) return '#7A7A7E';
     if (line.mode === 'fern') return '#BA2619';
-    if (line.mode === 'sbahn') return '#1F1F24';
     if (line.mode === 'bus' && line.color === BUS_LINE) return '#4B1C76';
     return line.color;
   };

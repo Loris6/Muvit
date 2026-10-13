@@ -10,17 +10,28 @@
   const C = {};
   M.C = C;
 
-  /** Verkehrsmittel-Zeichen wie an der Haltestelle: „Tram“ (eckig, rot) / „Bus“ (rund, lila) */
-  C.modeBadge = function (mode, o) {
+  /** DB-Logo (Regio- und Fernverkehr der Deutschen Bahn) */
+  const DB_LOGO = '<svg viewBox="0 0 34 24" aria-hidden="true"><rect x="1" y="1" width="32" height="22" rx="3.6" fill="#fff" stroke="#EC0016" stroke-width="2"/>' +
+    '<text x="17" y="17.4" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="14" letter-spacing="-.3" fill="#EC0016">DB</text></svg>';
+  M.DB_LOGO = DB_LOGO;
+  /** Verkehrsmittel-Zeichen wie an der Haltestelle: „Tram“ (Quadrat, rot), „Bus“ (Kreis, lila),
+      S-Bahn (grüner Kreis), U-Bahn (blaues Quadrat), DB-Logo für DB-Züge, sonst Zug-Piktogramm */
+  C.modeBadge = function (mode, o, line) {
     o = o || {};
     const sm = o.sm ? ' sm' : '';
-    if (mode === 'tram') return '<span class="bd m tram' + sm + '">Tram</span>';
-    if (mode === 'bus') return '<span class="bd m bus' + sm + '">' + (o.upper ? 'BUS' : 'Bus') + '</span>';
-    if (mode === 'sbahn') return '<span class="bd' + sm + '" style="background:#000">s</span>';
-    if (mode === 'regio') return '<span class="bd' + sm + '" style="background:#DE6459">RE</span>';
-    if (mode === 'fern') return '<span class="bd' + sm + '" style="background:#fff;color:#BA2619">IC</span>';
-    if (mode === 'ferry') return '<span class="bd' + sm + '" style="background:#1C7FB0">F</span>';
-    return '';
+    switch (mode) {
+      case 'tram': return '<span class="bd m tram' + sm + '" title="Straßenbahn">Tram</span>';
+      case 'bus': return '<span class="bd m bus' + sm + '" title="Bus">' + (o.upper ? 'BUS' : 'Bus') + '</span>';
+      case 'sbahn': return '<span class="bd m sb' + sm + '" title="S-Bahn">S</span>';
+      case 'ubahn': return '<span class="bd m ub' + sm + '" title="U-Bahn">U</span>';
+      case 'regio': case 'fern': {
+        const label = mode === 'fern' ? 'Fernverkehr' : 'Regionalverkehr';
+        if (!line || M.isDBLine(line)) return '<span class="bd m db' + sm + '" title="DB ' + label + '">' + DB_LOGO + '</span>';
+        return '<span class="bd m zug' + sm + '" title="' + label + (line.agency ? ' · ' + esc(line.agency) : '') + '">' + icon('train') + '</span>';
+      }
+      case 'ferry': return '<span class="bd m ferry' + sm + '" title="Fähre">' + icon('ferry') + '</span>';
+      default: return '';
+    }
   };
   /** Liniennummer: Tram eckig in Linienfarbe, Bus rund */
   C.lineBadge = function (line, o) {
@@ -29,22 +40,23 @@
     const round = line.mode === 'bus' ? ' round' : '';
     return '<span class="bd' + round + (o.sm ? ' sm' : '') + '" style="background:' + line.color + ';color:' + line.text + '" title="' + esc(M.modeInfo(line.mode).label + ' ' + line.full) + '">' + esc(line.name) + '</span>';
   };
-  /** Immer „Tram“/„Bus“ + Linie (Züge: nur Linie, z. B. RE1, S1) */
+  /** Immer Verkehrsmittel-Zeichen + Linie: [Tram][3], [Bus][73], [S][S1], [DB][RE1] */
   C.badges = function (line, o) {
     if (!line) return '';
     o = o || {};
-    const withMode = line.mode === 'tram' || line.mode === 'bus';
-    return '<span class="bds">' + (withMode ? C.modeBadge(line.mode, o) : '') + C.lineBadge(line, o) + '</span>';
+    return '<span class="bds">' + C.modeBadge(line.mode, o, line) + C.lineBadge(line, o) + '</span>';
   };
   /** Linien einer Haltestelle (Bild „Abfahrten / Departure“): Linien | weitere Verkehrsmittel */
   C.stopLines = function (lines) {
     const ls = M.sortLines(lines || []);
     const main = ls.filter((l) => l.mode === 'tram' || l.mode === 'bus').slice(0, 12);
-    const modes = [];
-    if (ls.some((l) => l.mode === 'bus')) modes.push('bus');
-    ['regio', 'sbahn', 'fern'].forEach((m) => { if (ls.some((l) => l.mode === m)) modes.push(m); });
+    const extra = [];
+    if (ls.some((l) => l.mode === 'bus')) extra.push(C.modeBadge('bus', { sm: true }));
+    ['sbahn', 'ubahn', 'regio', 'fern', 'ferry'].forEach((m) => ls.filter((l) => l.mode === m).forEach((l) => extra.push(C.modeBadge(m, { sm: true }, l))));
+    const key = (b) => b.replace(/ title="[^"]*"/, '');
+    const modes = extra.filter((b, i) => b && extra.findIndex((c) => key(c) === key(b)) === i);
     let h = main.map((l) => C.lineBadge(l, { sm: true })).join('');
-    if (modes.length) h += (main.length ? '<span class="vsep"></span>' : '') + modes.map((m) => C.modeBadge(m, { sm: true })).join('');
+    if (modes.length) h += (main.length ? '<span class="vsep"></span>' : '') + modes.join('');
     return h;
   };
 
@@ -62,8 +74,55 @@
     if (m < 100) return 'In ' + m + ' Min' + (dot ? '.' : '');
     return 'Um ' + M.fmtTime(t);
   };
-  C.platform = (p) => (p ? (/^\d+$/.test(p) ? 'Gleis ' + p : 'Bahnsteig ' + p) : '');
-  C.bstg = (p) => (p ? '<span class="bstg">' + (/^\d+$/.test(p) ? 'Gl. ' : 'Bstg. ') + esc(p) + '</span>' : '');
+  /** Tram/Bus: „Bstg.“ (Bahnsteig), Züge: „Gleis“ */
+  C.platform = (p, mode) => (p ? (M.isRail(mode) ? 'Gleis ' : 'Bstg. ') + p : '');
+  /** Gleiswechsel bei Zügen (aktuelles ≠ geplantes Gleis) */
+  C.platformChanged = (p, planned, mode) => !!(p && planned && String(p) !== String(planned) && M.isRail(mode));
+  C.bstg = function (p, mode, planned) {
+    if (!p) return '';
+    const chg = C.platformChanged(p, planned, mode);
+    return '<span class="bstg' + (chg ? ' chg' : '') + '"' + (chg ? ' title="Gleiswechsel – planmäßig Gleis ' + esc(planned) + '"' : '') + '>' + (M.isRail(mode) ? 'Gl. ' : 'Bstg. ') + esc(p) + '</span>';
+  };
+  /** Bahnsteig/Gleis als Text in Unterzeilen, Gleiswechsel rot hinterlegt */
+  C.platformText = function (p, mode, planned) {
+    if (!p) return '';
+    const chg = C.platformChanged(p, planned, mode);
+    return '<span class="pf' + (chg ? ' chg' : '') + '"' + (chg ? ' title="Gleiswechsel – planmäßig Gleis ' + esc(planned) + '"' : '') + '>' + esc(C.platform(p, mode)) + '</span>';
+  };
+
+  /** Linien in Hinweistexten als Zeichen darstellen: „fährt weiter als Linie 3“ → fährt weiter als [Tram][3] */
+  const REF_RE = /\b(Straßenbahnlinie|Straßenbahn|Tram|STR|Buslinie|Bus|Linie|S-Bahn|S|U|RE|RB|IRE|ICE|IC|EC|ECE)\s?(\d{1,5}[a-zA-Z]?)\b/g;
+  const KW_MODE = { 'Straßenbahnlinie': 'tram', 'Straßenbahn': 'tram', Tram: 'tram', STR: 'tram', Buslinie: 'bus', Bus: 'bus', 'S-Bahn': 'sbahn', S: 'sbahn', U: 'ubahn', RE: 'regio', RB: 'regio', IRE: 'regio', ICE: 'fern', IC: 'fern', EC: 'fern', ECE: 'fern' };
+  function guessMode(num, ctxLine, stopName) {
+    const known = stopName ? M.linesForStop(stopName).find((l) => l.name === num) : null;
+    if (known) return known.mode;
+    if (ctxLine && (ctxLine.mode === 'tram' || ctxLine.mode === 'bus')) return /^\d+$/.test(num) && +num <= 12 ? 'tram' : 'bus';
+    return ctxLine ? ctxLine.mode : 'bus';
+  }
+  C.richText = function (text, ctxLine, stopName) {
+    const badge = (name, mode) => C.badges(M.mkLine(name, mode), { sm: true });
+    let h = esc(text || '').replace(REF_RE, (all, kw, num) => {
+      const mode = KW_MODE[kw] || guessMode(num, ctxLine, stopName);
+      const name = mode === 'sbahn' || mode === 'ubahn' || mode === 'regio' ? kw.replace('S-Bahn', 'S') + num : mode === 'fern' ? kw + ' ' + num : num;
+      return '<span class="ref">' + badge(name, mode) + '</span>';
+    });
+    // „fährt weiter als 3“ / „kommt als 73“ ohne Verkehrsmittel
+    h = h.replace(/(weiter als|kommt als|kommend als)\s+(\d{1,3}[a-zA-Z]?)\b/gi, (all, w, num) => w + ' <span class="ref">' + badge(num, guessMode(num, ctxLine, stopName)) + '</span>');
+    return h;
+  };
+  /** Hinweiszeilen unter einer Linie: Störungen/Umleitungen (Warnung) und Durchläufer (Info) */
+  C.infoLines = function (x, i, o) {
+    o = o || {};
+    const at = x.stop && x.stop.name;
+    let h = '';
+    (x.alerts || []).slice(0, o.max || 2).forEach((a, k) => {
+      h += '<button class="alert-line" data-alert="' + i + ':' + k + '">' + icon('warnFill', 'w') + '<span class="tx">' + C.richText(a.title, x.line, at) + '</span><span class="chev">' + (a.text ? icon('right') : '') + '</span></button>';
+    });
+    (x.notes || []).slice(0, 2).forEach((n) => {
+      h += '<div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">' + C.richText(n.text, x.line, at) + '</span><span></span></div>';
+    });
+    return h;
+  };
 
   /** Abfahrtszeile wie im Bild „Haltestelle“ */
   C.depRow = function (x, i, o) {
@@ -71,16 +130,14 @@
     const st = C.status(x);
     const clk = 'Um ' + M.fmtTime(x.planned || x.time) + (x.realtime && x.delay ? '<span class="vsl"> (vsl.: ' + M.fmtTime(x.time) + ')</span>' : '');
     const sub = [ '<span class="' + st.cls + '">' + esc(st.text) + '</span>' ];
-    if (x.platform) sub.push('<span class="pf">' + esc(C.platform(x.platform)) + '</span>');
+    if (x.platform) sub.push(C.platformText(x.platform, x.line.mode, x.plannedPlatform));
     if (o.stopName && x.stop) sub.push('<span class="pf">' + esc(x.stop.name) + '</span>');
     let h = '<div class="dep-item' + (x.cancelled ? ' cancel' : '') + '"><button class="dep" data-i="' + i + '">' +
       C.badges(x.line, { upper: true }) +
       '<div style="min-width:0"><div class="dep-name">' + esc(x.headsign || '–') + '</div><div class="dep-sub">' + sub.join('<i class="sep"> • </i>') + '</div></div>' +
       '<div class="dep-r"><div class="cd ' + (x.cancelled ? 'c-red' : st.cls === 'c-gray' ? '' : st.cls) + '">' + C.countdown(x.time, true) + '</div><div class="clk">' + clk + '</div></div>' +
       '<span class="chev">' + icon('right') + '</span></button>';
-    (x.alerts || []).slice(0, o.alerts === false ? 0 : 1).forEach((a, k) => {
-      h += '<button class="alert-line" data-alert="' + i + ':' + k + '">' + icon('warnFill', 'w') + '<span class="tx">' + esc(a.title) + '</span><span class="chev">' + icon('right') + '</span></button>';
-    });
+    if (o.alerts !== false) h += C.infoLines(x, i);
     return h + '</div>';
   };
 
@@ -108,7 +165,7 @@
       legs += l.walk ? '<span class="wk">' + icon('walk') + Math.max(1, Math.round(l.duration)) + '</span>' : C.badges(l.line, { sm: true });
     });
     const st = first ? C.status({ realtime: first.realtime, delay: first.from.delay, cancelled: j.cancelled }) : { text: 'Fußweg', cls: 'c-gray' };
-    const sub = first ? '<span class="' + st.cls + '">' + esc(st.text) + '</span> • ab ' + esc(first.from.name) + (first.from.platform ? ', ' + esc(C.platform(first.from.platform)) : '') : esc(M.fmtDist(j.legs[0].distance));
+    const sub = first ? '<span class="' + st.cls + '">' + esc(st.text) + '</span> • ab ' + esc(first.from.name) + (first.from.platform ? ', ' + C.platformText(first.from.platform, first.line.mode, first.from.plannedPlatform) : '') : esc(M.fmtDist(j.legs[0].distance));
     return '<button class="jrow" data-i="' + i + '"><div style="min-width:0">' +
       '<div class="tt">' + M.fmtTime(j.legs[0].from.time) + dl(dStart) + '<span class="c-gray">–</span>' + M.fmtTime(j.legs[j.legs.length - 1].to.time) + dl(dEnd) + '</div>' +
       '<div class="legs">' + legs + '</div><div class="sub">' + sub + '</div></div>' +
