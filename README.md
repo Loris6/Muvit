@@ -24,6 +24,7 @@ Die Karte liegt immer im Hintergrund. Alle Inhalte stecken in einem dunklen Shee
 - **[Transitous](https://transitous.org)** (MOTIS 2, `api.transitous.org`): Fahrplan und Echtzeit für ganz Europa, darunter die MVB-Straßenbahnen und -Busse in Magdeburg (DELFI) sowie Regional- und Fernverkehr. Muvit nutzt `geocode`, `plan`, `stoptimes`, `trip`, `map/stops` und `map/trips` (Live-Fahrzeuge).
 - **[db.transport.rest](https://v6.db.transport.rest)** (Deutsche Bahn): automatischer Fallback und Quelle für DB-Ticketpreise. In den Einstellungen lässt sich die DB auch als primäre Quelle wählen.
 - **Karte:** © [OpenStreetMap](https://www.openstreetmap.org/copyright)-Mitwirkende, Vektor-Kacheln von [OpenFreeMap](https://openfreemap.org), CARTO-Raster als Fallback.
+- **Icons:** [Uicons by Flaticon](https://www.flaticon.com/uicons) (Regular, Bold und Solid Rounded aus `@flaticon/flaticon-uicons` 3.3.1). Die Glyphen sind als SVG-Pfade in `js/icons.js` eingebettet. Die Flaticon-Lizenz verlangt eine Namensnennung, sie steht in den Einstellungen unter „Über Muvit“.
 - **Tarife:** Werte in `js/tariffs.js` (marego-Tarifreform 01.08.2026, Deutschlandticket 63 €/Monat seit 01.01.2026). Alle Angaben ohne Gewähr. Fehlende Preise werden nicht geschätzt, Muvit verlinkt dann auf die offizielle Tarifauskunft.
 
 Die Karte braucht keinen API-Schlüssel.
@@ -75,7 +76,7 @@ Bei Opus und Sonnet ist der serverseitige Fallback aktiviert (`fallbacks: "defau
 index.html              Startframe, Karte, Sheet
 css/muvit.css           Design-System (dunkles Sheet, Linien-Badges, Handy/Tablet)
 js/core.js              Konfiguration, Zeit (Europe/Berlin), Geometrie, Farben, Standort, Speicher
-js/icons.js             Icon-Set & Haltestellenschild
+js/icons.js             Flaticon-Uicons (eingebettet) & Haltestellenschild
 js/api.js               Transitous- & DB-Client, Normalisierung, Fallback
 js/tariffs.js           Tarifdaten & Tarif-Einschätzung
 js/map.js               MapLibre: H-Schilder, Live-Fahrzeuge, Routen, Linienverläufe
@@ -84,7 +85,7 @@ js/views.js             Alle Ansichten
 js/assistant.js         Muvit KI (Claude-Tool-Use + Basis-Modus)
 js/app.js               Start & Verdrahtung
 js/vendor/              Anthropic-SDK als Browser-Bundle (MIT, Safari-kompatibel gebaut)
-assets/                 Logo (SVG) und App-Icons (PNG für iOS/Android)
+assets/                 App-Icon (SVG) und PNG-Icons für iOS/Android
 ```
 
 ## Hinweise

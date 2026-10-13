@@ -976,7 +976,7 @@
         '<div class="lbl">Privatsphäre</div>' +
         '<div class="kv"><div class="k">Verlauf löschen<small>Gesuchte Orte, Routen und Haltestellen</small></div><button class="btn-o" data-wipe>Löschen</button></div>' +
         '<div class="kv"><div class="k">Favoriten löschen<small>Gemerkte Haltestellen und Routen</small></div><button class="btn-o" data-wipefav>Löschen</button></div>' +
-        '<div class="lbl">Über Muvit</div><div class="hint">' + icon('infoFill') + '<span>Fahrplan & Echtzeit: <a href="https://transitous.org" target="_blank" rel="noopener">Transitous</a> und <a href="https://v6.db.transport.rest" target="_blank" rel="noopener">db.transport.rest</a>. Karte: © OpenStreetMap-Mitwirkende, OpenFreeMap, MapLibre. Tarife ohne Gewähr.</span></div>';
+        '<div class="lbl">Über Muvit</div><div class="hint">' + icon('infoFill') + '<span>Fahrplan & Echtzeit: <a href="https://transitous.org" target="_blank" rel="noopener">Transitous</a> und <a href="https://v6.db.transport.rest" target="_blank" rel="noopener">db.transport.rest</a>. Karte: © OpenStreetMap-Mitwirkende, OpenFreeMap, MapLibre. Icons: <a href="https://www.flaticon.com/uicons" target="_blank" rel="noopener">Uicons by Flaticon</a>. Tarife ohne Gewähr.</span></div>';
       ctx.body.querySelectorAll('[data-seg]').forEach((g) => g.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
         const key = g.dataset.seg; let v = b.dataset.v; if (key === 'radius') v = +v;
         M.saveSettings({ [key]: v });
