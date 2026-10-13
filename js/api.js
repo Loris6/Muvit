@@ -648,6 +648,8 @@
         const ta = isThrough(a), tb = isThrough(b);
         if (ta === tb) continue;
         const ghost = ta ? a : b, real = ta ? b : a;
+        // dasselbe Fahrzeug: beide Fahrten enden am selben Halt
+        if (!real.dest || !sameStop(real.dest, ghost.dest)) continue;
         drop.add(ghost);
         if (!real.comes) real.comes = { line: ghost.line, from: ghost.origin ? ghost.origin.name : '', tripId: ghost.tripId, src: ghost.src };
       }
@@ -683,8 +685,9 @@
         if (!arr) return null;
         const depHere = end.depPlanned || end.dep || null;   // fährt das Fahrzeug selbst weiter (gleiche Fahrt)?
         const r = await M.Transit.departures({ id: end.id, name: end.name, lat: end.lat, lon: end.lon, type: 'stop', src: 'motis' }, { n: 60, time: bucket(arr.getTime() - 2 * 60000) });
+        const last = t.stops[t.stops.length - 1];
         const c = r.list.filter((d) => d.line.mode === t.line.mode && d.line.name !== t.line.name && !d.cancelled && d.tripId !== x.tripId &&
-          ((d.origin && sameStop(d.origin, end)) || (depHere && Math.abs(d.planned - depHere) <= 90000)) &&
+          ((d.origin && sameStop(d.origin, end)) || (h >= 0 && depHere && Math.abs(d.planned - depHere) <= 90000 && d.dest && sameStop(d.dest, last))) &&
           d.planned - arr >= -60000 && d.planned - arr <= 12 * 60000 && samePlatform(d.platform, end.platform))
           .sort((a, b) => a.planned - b.planned)[0];
         if (c) return { line: c.line, headsign: c.headsign, at: end.name, tripId: c.tripId, src: 'motis', time: c.time };
@@ -799,14 +802,13 @@
       })).sort((a, b) => (order[a.line.mode] - order[b.line.mode]) || a.line.name.localeCompare(b.line.name, 'de', { numeric: true }));
     },
 
-    /** Alle Linien einer Stadt: Abfahrten wichtiger Haltestellen, über das ganze Stadtgebiet verteilt */
-    async linesCity(lat, lon, onUpdate) {
+    /** Wichtige Haltestellen über das ganze Stadtgebiet verteilt (4 × 4-Raster + die wichtigsten) */
+    async cityStops(lat, lon) {
       const box = M.cityBox(lat, lon);
       let groups = [];
       try { groups = M.Transit.groupStops(await M.Transit.stopsInBox(box.minLat, box.minLon, box.maxLat, box.maxLon)); } catch (e) { /* unten Fallback */ }
       if (!groups.length) groups = await M.Transit.nearby(lat, lon, 1500).catch(() => []);
       if (!groups.length) throw new ApiError('Keine Haltestellen gefunden', 404);
-      // je Rasterfeld (4 × 4) die wichtigste Haltestelle, dazu die wichtigsten der ganzen Stadt
       const R = 4, pick = new Map();
       const cell = (v, a, b) => Math.max(0, Math.min(R - 1, Math.floor(((v - a) / (b - a || 1)) * R)));
       groups.forEach((g) => {
@@ -817,6 +819,12 @@
       const top = groups.slice().sort((a, b) => (b.importance || 0) - (a.importance || 0)).slice(0, 6);
       const seen = new Set(), list = [];
       top.concat(Array.from(pick.values())).forEach((g) => { if (!seen.has(g.name)) { seen.add(g.name); list.push(g); } });
+      return { list, top };
+    },
+
+    /** Alle Linien einer Stadt: Abfahrten wichtiger Haltestellen, über das ganze Stadtgebiet verteilt */
+    async linesCity(lat, lon, onUpdate) {
+      const { list, top } = await M.Transit.cityStops(lat, lon);
       const lines = new Map();
       const order = { tram: 0, bus: 1, sbahn: 2, ubahn: 3, regio: 4, fern: 5, ferry: 6, other: 7 };
       const result = () => Array.from(lines.values()).map((L) => ({

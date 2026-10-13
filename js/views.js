@@ -349,7 +349,7 @@
     const n = l.stops.length;
     return '<div class="vb-leg" data-leg="' + i + '" style="--c:' + c + ';--dc:' + M.stopDotColor(c) + '"><div class="vb-rail"></div>' +
       stopRowHTML(l.from, c, i + ':f', { realtime: l.realtime, mode: l.line.mode }) +
-      '<div class="vb-body"><div class="vb-line"><span class="bds" data-trip="' + i + '">' + C.badges(l.line) + '</span><span class="dir">nach ' + esc(l.headsign || l.to.name) + '</span></div>' +
+      '<div class="vb-body"><div class="vb-line"><span class="bds" data-trip="' + i + '">' + C.badges(l.line, { rt: !!l.realtime }) + '</span><span class="dir">nach ' + esc(l.headsign || l.to.name) + '</span></div>' +
         (l.wheelchair ? '<div class="wbox" title="Barrierefrei">' + icon('wheel') + '</div>' : '') +
         l.alerts.map((a) => '<div class="vb-alert">' + icon('warnFill') + '<div>' + C.richText(a.title, l.line, l.from.name) + (a.text ? '<small>' + esc(a.text.slice(0, 220)) + '</small>' : '') + '</div></div>').join('') +
         (l.notes || []).map((n) => '<div class="vb-alert note">' + icon('infoFill') + '<div>' + C.richText(n.text, l.line, l.from.name) + '</div></div>').join('') +
@@ -402,6 +402,7 @@
           '<div class="btn-row">' +
             '<button class="btn-o" data-a="refresh">' + icon('refresh') + 'Aktualisieren</button>' +
             '<button class="btn-o' + (favOn ? ' acc' : '') + '" data-a="fav">' + icon(favOn ? 'starFill' : 'star') + (favOn ? 'Gemerkt' : 'Merken') + '</button>' +
+            (j.arr > Date.now() && M.Watch ? '<button class="btn-o' + (M.Watch.isWatching(j) ? ' acc' : '') + '" data-a="watch">' + icon(M.Watch.isWatching(j) ? 'bellRing' : 'bell') + (M.Watch.isWatching(j) ? 'Wird überwacht' : 'Überwachen') + '</button>' : '') +
             '<button class="btn-o" data-a="share">' + icon('share') + 'Teilen</button>' +
             (est.kind === 'db' || est.kind === 'verbund' ? '<button class="btn-o" data-a="price">' + icon('euro') + 'DB-Preis</button>' : '') +
             '<button class="btn-o" data-a="ai">' + icon('headset') + 'Assistance</button>' +
@@ -431,6 +432,10 @@
         const j = st.j;
         if (a === 'refresh') refresh(true);
         else if (a === 'fav' && q) { const on = M.favs.toggleRoute(q.from, q.to); M.toast(on ? 'Route gemerkt' : 'Route entfernt'); draw(); }
+        else if (a === 'watch') {
+          if (M.Watch.isWatching(j)) { M.Watch.stop(); M.toast('Überwachung beendet'); } else await M.Watch.start(j, q);
+          draw();
+        }
         else if (a === 'share') {
           const a0 = j.legs[0].from, b0 = j.legs[j.legs.length - 1].to;
           const text = 'Muvit · ' + a0.name + ' → ' + b0.name + '\n' + M.fmtDayTime(a0.time) + ' – ' + M.fmtTime(b0.time) + ' (' + M.fmtDur(j.duration) + ')\n' +
@@ -572,7 +577,7 @@
       const p = ctx.params, st = ctx.state;
       let idxs = null;
       ctx.head({ title: 'Fahrtverlauf' });
-      const headHTML = (line, to) => '<div class="trip-head">' + C.badges(line) + icon('arrow', 'to-ar') + '<span class="to">' + esc(to) + '</span></div>';
+      const headHTML = (line, to, rt) => '<div class="trip-head">' + C.badges(line, rt === undefined ? {} : { rt }) + icon('arrow', 'to-ar') + '<span class="to">' + esc(to) + '</span></div>';
       if (p.line) ctx.extra(headHTML(p.line, '…'));
       ctx.body.innerHTML = C.skel(7);
       st.conn = st.conn || {};
@@ -593,7 +598,7 @@
         (s.alerts || []).slice(0, 2).forEach((a) => { h += '<div class="ti warn">' + icon('warnFill') + '<span>' + C.richText(a.title, line, s.name) + '</span></div>'; });
         const cn = st.conn[(s.id || s.name) + '|' + line.name];
         if (cn && cn.length) {
-          h += '<div class="ti">' + icon('transfer') + '<span>Anschluss: ' + cn.map((c) => '<span class="cx"><span class="ref">' + C.badges(c.line, { sm: true }) + '</span> ' + esc(c.headsign) + ' ' + timeOf(c.time) + '</span>').join(' · ') + '</span></div>';
+          h += '<div class="ti">' + icon('transfer') + '<span><span class="cxh">Anschluss</span>' + cn.map((c) => '<span class="cx"><span class="ref">' + C.badges(c.line, { sm: true }) + '</span><span class="cxt">' + esc(c.headsign) + '</span><b>' + timeOf(c.time) + '</b></span>').join('') + '</span></div>';
         }
         return h ? '<div class="tinfo">' + h + '</div>' : '';
       }
@@ -623,12 +628,12 @@
             const txt = s.cancelled ? 'Fällt aus' : !t.realtime || d == null ? 'Planmäßig' : d === 0 ? 'Pünktlich' : d < 0 ? 'Früher (' + d + ' Min.)' : 'Verspätet (+' + d + ' Min.)';
             ss = '<span class="' + x.cls + '">' + txt + '</span>' + (wc ? '<span class="c-gray" style="display:inline-flex;gap:6px;align-items:center">' + wc + '</span>' : '');
             const mins = M.minsUntil(tm);
-            a = '<span class="' + (s.cancelled ? 'c-red' : mins <= 3 ? 'c-orange' : 'c-green') + '">' + (mins <= 0 ? 'Jetzt' : 'In ' + mins + ' Min') + '</span>';
+            a = '<span class="' + C.delayCls({ realtime: t.realtime, delay: d, cancelled: s.cancelled }) + '">' + (mins <= 0 ? 'Jetzt' : 'In ' + mins + ' Min') + '</span>';
             b = dwell ? 'an ' + M.fmtTime(ar) + '<br>ab ' + M.fmtTime(de) : 'Um ' + M.fmtTime(pl || tm) + (d ? '<span class="vsl"> (vsl. ' + M.fmtTime(tm) + ')</span>' : '');
           }
           h += '<button class="trow' + (past ? ' past' : '') + (isNext ? ' next' : '') + '" data-p="' + pi + '" data-i="' + i + '">' +
-            '<div style="min-width:0"><div class="nm"><span>' + esc(s.name) + '</span>' + (!past ? C.bstg(s.platform, t.line.mode, s.plannedPlatform) : '') + '</div><div class="ss">' + ss + '</div>' + (past ? '' : stopInfo(s, t.line)) + '</div>' +
-            '<div class="r"><div class="a">' + a + '</div><div class="b">' + b + '</div></div></button>';
+            '<div style="min-width:0"><div class="nm"><span>' + esc(s.name) + '</span>' + (!past ? C.bstg(s.platform, t.line.mode, s.plannedPlatform) : '') + '</div><div class="ss">' + ss + '</div></div>' +
+            '<div class="r"><div class="a">' + a + '</div><div class="b">' + b + '</div></div>' + (past ? '' : stopInfo(s, t.line)) + '</button>';
         });
         return { html: h + '</div>', next, key: rp.state + rp.idx };
       }
@@ -641,7 +646,7 @@
       }
       function draw() {
         const t = st.trip, now = Date.now();
-        ctx.extra(headHTML(t.line, t.headsign));
+        ctx.extra(headHTML(t.line, t.headsign, !!t.realtime));
         const main = partHTML(t, 0, now);
         const at = t.stops[Math.min(main.next, t.stops.length - 1)];
         const info = C.infoLines({ alerts: t.alerts, notes: t.notes, line: t.line, stop: at }, 0, { max: 3 });
@@ -954,16 +959,26 @@
     render(ctx) {
       const st = ctx.state;
       ctx.head({ title: 'Verkehrsmelder', actions: [{ icon: 'refresh', label: 'Aktualisieren', onClick: () => { st.items = null; load(); } }] });
-      ctx.body.innerHTML = '<div class="day" style="border-top:0"><span>Aktuelle Meldungen</span><span class="upd" data-upd></span></div><div data-list>' + C.skel(5) + '</div>' +
-        '<div class="hint" style="padding-top:18px">' + icon('infoFill') + '<span>Meldungen stammen aus den Echtzeitdaten der Verkehrsunternehmen (MVB, DB u. a.) für Haltestellen rund um dich.</span></div>';
+      ctx.body.innerHTML = '<div class="day" style="border-top:0"><span>Aktuelle Meldungen der MVB</span><span class="upd" data-upd></span></div><div data-list>' + C.skel(5) + '</div>' +
+        '<div class="hint" style="padding-top:18px">' + icon('infoFill') + '<span>Die Meldungen stammen aus den Echtzeitdaten der MVB (Straßenbahn und Bus in Magdeburg). Muvit fragt dafür die wichtigsten Haltestellen im ganzen Stadtgebiet ab.</span></div>' +
+        '<div class="btn-row" style="padding-top:6px"><a class="btn-o" href="https://www.mvbnet.de/" target="_blank" rel="noopener">' + icon('external') + 'Alle Meldungen auf mvbnet.de</a></div>';
       const box = M.$('[data-list]', ctx.body);
+      const isMvb = (l) => !l || /MVB|Magdeburger Verkehrsbetriebe/i.test(l.agency || '') || (!l.agency && (l.mode === 'tram' || l.mode === 'bus'));
+      function itemHTML(a, i) {
+        const ls = a.lines.filter((l) => isMvb(l) === a.mvb);
+        return '<div class="dep-item"><button class="alert-line" style="padding-top:14px" data-i="' + i + '">' + icon('warnFill', 'w') +
+          '<span class="tx"><b>' + C.richText(a.title) + '</b>' + (ls.length ? '<span style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px">' + M.sortLines(ls).slice(0, 12).map((l) => C.badges(l, { sm: true })).join('') + '</span>' : '') +
+          '<span class="c-gray" style="display:block;margin-top:6px;font-size:14px">' + esc(a.stops.slice(0, 3).join(', ')) + (a.stops.length > 3 ? ' u. a.' : '') + '</span></span><span class="chev">' + icon('down') + '</span></button></div>';
+      }
       function draw() {
         const items = st.items || [];
-        M.$('[data-upd]', ctx.body).textContent = 'Aktualisiert: ' + M.fmtTime(st.updated || new Date());
-        if (!items.length) { box.innerHTML = C.empty('Keine Störungen gemeldet', 'Aktuell liegen für die Umgebung keine Meldungen vor.'); return; }
-        box.innerHTML = items.map((a, i) => '<div class="dep-item"><button class="alert-line" style="padding-top:14px" data-i="' + i + '">' + icon('warnFill', 'w') +
-          '<span class="tx"><b>' + esc(a.title) + '</b><span style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px">' + M.sortLines(a.lines).slice(0, 10).map((l) => C.badges(l, { sm: true })).join('') + '</span>' +
-          '<span class="c-gray" style="display:block;margin-top:6px;font-size:14px">' + esc(a.stops.slice(0, 3).join(', ')) + '</span></span><span class="chev">' + icon('down') + '</span></button></div>').join('');
+        M.$('[data-upd]', ctx.body).textContent = st.loading ? 'Wird geladen …' : 'Aktualisiert: ' + M.fmtTime(st.updated || new Date());
+        const mvb = items.filter((a) => a.mvb), other = items.filter((a) => !a.mvb);
+        if (!items.length) { box.innerHTML = st.loading ? C.skel(4) : C.empty('Keine Störungen gemeldet', 'Für Straßenbahn und Bus in Magdeburg liegen gerade keine Meldungen vor.'); return; }
+        let h = mvb.length ? mvb.map((a) => itemHTML(a, items.indexOf(a))).join('') : C.empty('Keine MVB-Meldungen', 'Für Straßenbahn und Bus liegen gerade keine Meldungen vor.');
+        if (other.length) h += '<div class="lbl" style="padding-top:18px">Weitere Meldungen (Bahn)</div>' + other.map((a) => itemHTML(a, items.indexOf(a))).join('');
+        if (st.loading) h += C.skel(2);
+        box.innerHTML = h;
         bindAll(box, '.alert-line', (b) => {
           const a = items[+b.dataset.i], n = b.nextElementSibling;
           if (n) { n.remove(); return; }
@@ -972,33 +987,44 @@
       }
       async function load() {
         box.innerHTML = C.skel(5);
+        st.loading = true; st.items = [];
+        const map = new Map();
+        const add = (a, line, s) => {
+          const k = a.title;
+          if (!map.has(k)) map.set(k, { title: a.title, text: a.text, lines: [], stops: [], mvb: isMvb(line) });
+          const it = map.get(k);
+          if (line && !it.lines.some((l) => l.name === line.name && l.mode === line.mode)) it.lines.push(line);
+          if (line && isMvb(line)) it.mvb = true;
+          if (!it.stops.includes(s.name)) it.stops.push(s.name);
+        };
         try {
-          const c = M.Geo.pos && M.dist(M.Geo.pos.lat, M.Geo.pos.lon, M.CONFIG.center.lat, M.CONFIG.center.lon) < 40000 ? M.Geo.pos : M.CONFIG.center;
-          let stops = await M.Transit.nearby(c.lat, c.lon, 2000);
-          stops = stops.sort((a, b) => (b.importance - a.importance) || (a.distance - b.distance)).slice(0, 6);
-          const map = new Map();
-          for (const s of stops) {
-            try {
-              const r = await M.Transit.departures(s, { n: 60 });
-              const add = (a, line) => {
-                const k = a.title;
-                if (!map.has(k)) map.set(k, { title: a.title, text: a.text, lines: [], stops: [] });
-                const it = map.get(k);
-                if (line && !it.lines.some((l) => l.name === line.name && l.mode === line.mode)) it.lines.push(line);
-                if (!it.stops.includes(s.name)) it.stops.push(s.name);
-              };
-              (r.alerts || []).forEach((a) => add(a, null));
-              r.list.forEach((x) => (x.alerts || []).forEach((a) => add(a, x.line)));
-            } catch (e) { /* Haltestelle überspringen */ }
-            if (!ctx.alive()) return;
-          }
-          st.items = Array.from(map.values()); st.updated = new Date();
+          const c = M.CONFIG.center;
+          const { list } = await M.Transit.cityStops(c.lat, c.lon);
+          let i = 0;
+          const worker = async () => {
+            while (i < list.length) {
+              const s = list[i++];
+              try {
+                const r = await M.Transit.departures(s, { n: 80 });
+                (r.alerts || []).forEach((a) => add(a, null, s));
+                r.list.forEach((x) => (x.alerts || []).forEach((a) => add(a, x.line, s)));
+              } catch (e) { /* Haltestelle überspringen */ }
+              if (!ctx.alive()) return;
+              st.items = Array.from(map.values()).sort((a, b) => b.lines.length - a.lines.length);
+              draw();
+            }
+          };
+          await Promise.all([worker(), worker(), worker()]);
+          if (!ctx.alive()) return;
+          st.loading = false; st.updated = new Date();
+          st.items = Array.from(map.values()).sort((a, b) => b.lines.length - a.lines.length);
           draw();
-        } catch (e) { if (ctx.alive()) { box.innerHTML = ''; box.appendChild(C.error(e, load)); } }
+        } catch (e) { st.loading = false; if (ctx.alive()) { box.innerHTML = ''; box.appendChild(C.error(e, load)); } }
       }
-      if (st.items) draw(); else load();
+      if (st.items && !st.loading && ctx.restoring) draw(); else load();
     }
   };
+
 
   /* =====================================================================
      Abonnements
@@ -1083,7 +1109,7 @@
       ctx.cleanup(() => { if (!wasOn) M.Map.setShowVehicles(false); });
       if (M.Map.map && !ctx.restoring) {
         // ganze Stadt zeigen, damit alle Fahrzeuge zu sehen sind
-        const c = M.Map.center(), b = M.cityBox(c.lat, c.lon);
+        const b = M.CONFIG.mdBBox;
         M.Map.fitCoords([[b.minLon, b.minLat], [b.maxLon, b.maxLat]], { maxZoom: 13 });
       }
       ctx.body.innerHTML =
@@ -1132,8 +1158,8 @@
       }
       async function load() {
         box.innerHTML = C.skel(6);
-        const c = M.Map.center();
-        st.area = M.cityBox(c.lat, c.lon).name; st.loading = true; st.lines = null;
+        const c = M.CONFIG.center;   // Muvit ist eine Magdeburg-App
+        st.area = 'Magdeburg'; st.loading = true; st.lines = null;
         try {
           const res = await M.Transit.linesCity(c.lat, c.lon, (part) => { if (ctx.alive()) { st.lines = part; draw(); } });
           st.lines = res; st.loading = false;
@@ -1172,6 +1198,9 @@
       ctx.head({ title: 'Einstellungen' });
       const seg = (key, opts) => '<div class="seg" data-seg="' + key + '">' + opts.map((o) => '<button data-v="' + o[0] + '" class="' + (String(s[key]) === String(o[0]) ? 'on' : '') + '">' + o[1] + '</button>').join('') + '</div>';
       const sw = (id, on) => '<label class="sw"><input type="checkbox" data-sw="' + id + '"' + (on ? ' checked' : '') + '><span></span></label>';
+      const notifState = () => (!('Notification' in window) ? 'In diesem Browser nicht verfügbar (iPhone: Muvit zum Home-Bildschirm hinzufügen)'
+        : Notification.permission === 'granted' ? 'Erlaubt – z. B. wenn ein Anschluss nicht erreicht wird'
+        : Notification.permission === 'denied' ? 'Blockiert – in den Browser-Einstellungen freigeben' : 'Noch nicht erlaubt');
       ctx.body.innerHTML =
         '<div class="lbl" style="padding-top:6px">Assistance (Muvit KI)</div>' +
         '<div class="hint" style="padding-bottom:14px">' + icon('infoFill') + '<span>Die Assistance nutzt Claude von Anthropic. Dein API-Schlüssel bleibt nur in diesem Browser und wird direkt an api.anthropic.com gesendet. Ohne Schlüssel beantwortet Muvit typische Fragen im Basis-Modus.</span></div>' +
@@ -1183,6 +1212,7 @@
         '<div class="kv"><div class="k">Live-Fahrzeuge</div>' + sw('veh', s.showVehicles !== false) + '</div>' +
         '<div class="kv"><div class="k">Haltestellen („H“)</div>' + sw('stops', s.showStops !== false) + '</div>' +
         '<div class="kv"><div class="k">Dunkle Karte</div>' + sw('dark', !!s.mapDark) + '</div>' +
+        '<div class="kv"><div class="k">Mitteilungen<small data-npst>' + notifState() + '</small></div><button class="btn-o" data-notif style="height:36px">' + icon('bell') + 'Erlauben</button></div>' +
         '<div class="lbl">Fahrplandaten</div>' + seg('provider', [['motis', 'Transitous (Echtzeit)'], ['db', 'Deutsche Bahn']]) +
         '<div class="lbl" style="padding-top:4px">Umkreis „In der Nähe“</div>' + seg('radius', [[500, '500 m'], [900, '900 m'], [1500, '1,5 km']]) +
         '<div class="lbl">Privatsphäre</div>' +
@@ -1210,6 +1240,11 @@
         try { await M.Assistant.testKey(); M.toast('Verbindung zu Claude funktioniert'); }
         catch (err) { M.toast(err.message || 'Test fehlgeschlagen', { type: 'err', ms: 6000 }); }
         finally { b.disabled = false; }
+      });
+      bindAll(ctx.body, '[data-notif]', async () => {
+        if (!('Notification' in window)) { M.toast('Mitteilungen sind hier nicht verfügbar. Auf dem iPhone Muvit zuerst zum Home-Bildschirm hinzufügen.', { type: 'err', ms: 6000 }); return; }
+        try { await Notification.requestPermission(); } catch (e) { /* ignore */ }
+        const el = M.$('[data-npst]', ctx.body); if (el) el.textContent = notifState();
       });
       bindAll(ctx.body, '[data-wipe]', () => { ['recentPlaces', 'recentRoutes', 'recentStops', 'stopLines'].forEach((k) => M.store.del(k)); M.toast('Verlauf gelöscht'); });
       bindAll(ctx.body, '[data-wipefav]', () => { ['favStops', 'favRoutes'].forEach((k) => M.store.del(k)); M.toast('Favoriten gelöscht'); });

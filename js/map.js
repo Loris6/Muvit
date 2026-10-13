@@ -85,7 +85,7 @@
   }
   /** Fahrzeug-Plakette im Haltestellen-Stil: [Tram][4] bzw. (Bus)(73), z. B. veh|4|#8EC33B|#FFFFFF|tram */
   function vehicleImage(id) {
-    const [, label, bg, fg, mode, op] = id.split('|');
+    const [, label, bg, fg, mode, op, rt] = id.split('|');
     const B = 20 * DPR, gap = 3 * DPR, padP = 3 * DPR, pad = 4 * DPR, bw = 1.2 * DPR;
     const meas = canvas(10, 10).getContext('2d');
     const numFont = '700 ' + (11 * DPR) + 'px Rubik, system-ui, sans-serif';
@@ -95,7 +95,10 @@
     const modeW = isTrain && op === 'db' ? Math.round(B * 34 / 24) : ['sbahn', 'ubahn', 'ferry', 'regio', 'fern'].includes(mode) ? B : 0;
     const lineW = Math.max(B, Math.ceil(meas.measureText(label).width) + 8 * DPR);
     const W = (modeW ? modeW + gap : 0) + lineW + padP * 2, H = B + padP * 2;
-    const c = canvas(W + pad * 2, H + pad * 2), x = c.getContext('2d');
+    // Platz oben rechts für das Echtzeit-Zeichen
+    const ex = 6 * DPR;
+    const c = canvas(W + pad * 2 + ex, H + pad * 2 + ex), x = c.getContext('2d');
+    x.translate(0, ex);
     const top = pad + padP;
     // dunkle Plakette als Hintergrund (Kontrast auf heller Karte)
     x.shadowColor = 'rgba(0,0,0,.35)'; x.shadowBlur = 3 * DPR; x.shadowOffsetY = 1 * DPR;
@@ -128,6 +131,16 @@
     else if (mode === 'ferry') { badge(X, B, '#1C7FB0', false, '', small, ''); glyph(X, 'ferry'); }
     if (modeW) X += modeW + gap;
     badge(X, lineW, bg, mode === 'bus', label, numFont, fg);
+    // Echtzeit: schwarzer Kreis, weißer Rand, WLAN grün (Echtzeit) / rot (Fahrplan)
+    if (rt === '1' || rt === '0') {
+      const r = 7.5 * DPR, cx = pad + W - 1 * DPR, cy = pad + 1 * DPR;
+      x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.fillStyle = '#FFFFFF'; x.fill();
+      x.beginPath(); x.arc(cx, cy, r - 1.5 * DPR, 0, Math.PI * 2); x.fillStyle = '#000000'; x.fill();
+      if (window.Path2D && M.icons.wifi) {
+        const g = (r * 1.1) / 24;
+        x.save(); x.translate(cx - 12 * g, cy - 12 * g); x.scale(g, g); x.fillStyle = rt === '1' ? '#34C759' : '#FF3B30'; x.fill(new Path2D(M.icons.wifi)); x.restore();
+      }
+    }
     return { width: c.width, height: c.height, data: x.getImageData(0, 0, c.width, c.height).data };
   }
   function addImages() {
@@ -496,7 +509,7 @@
             type: 'Feature', geometry: { type: 'Point', coordinates: [v.pos.lon, v.pos.lat] },
             properties: {
               tripId: v.tripId, name: L.name, mode: L.mode, color: L.color, to: v.seg.to || '',
-              icon: 'veh|' + L.name.slice(0, 7) + '|' + L.color + '|' + L.text + '|' + L.mode + '|' + (M.isDBLine(L) ? 'db' : ''),
+              icon: 'veh|' + L.name.slice(0, 7) + '|' + L.color + '|' + L.text + '|' + L.mode + '|' + (M.isDBLine(L) ? 'db' : '') + '|' + (v.seg.realtime ? '1' : '0'),
               bearing: v.pos.bearing, moving: v.moving, rank: RANK[L.mode] || 1
             }
           };

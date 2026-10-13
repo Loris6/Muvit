@@ -44,7 +44,18 @@
   C.badges = function (line, o) {
     if (!line) return '';
     o = o || {};
-    return '<span class="bds">' + C.modeBadge(line.mode, o, line) + C.lineBadge(line, o) + '</span>';
+    const rt = o.rt === undefined ? '' : C.rtBadge(o.rt);
+    return '<span class="bds' + (rt ? ' has-rt' : '') + '">' + C.modeBadge(line.mode, o, line) + C.lineBadge(line, o) + rt + '</span>';
+  };
+  /** Echtzeit-Zeichen: schwarzer Kreis mit weißem Rand, WLAN grün (Echtzeit) bzw. rot (nur Fahrplan) */
+  C.rtBadge = (on) => '<span class="rtb ' + (on ? 'ok' : 'no') + '" title="' + (on ? 'Echtzeitdaten' : 'Keine Echtzeitdaten – Fahrplan') + '">' + icon('wifi') + '</span>';
+  /** Farbe für Minuten/Countdown: grün pünktlich, blau zu früh, orange leicht verspätet, rot verspätet */
+  C.delayCls = function (x) {
+    if (x.cancelled) return 'c-red';
+    if (!x.realtime || x.delay == null) return '';
+    if (x.delay < 0) return 'c-blue';
+    if (x.delay === 0) return 'c-green';
+    return x.delay >= 5 ? 'c-red' : 'c-orange';
   };
   /** Linien einer Haltestelle (Bild „Abfahrten / Departure“): Linien | weitere Verkehrsmittel */
   C.stopLines = function (lines) {
@@ -138,9 +149,9 @@
     if (x.platform) sub.push(C.platformText(x.platform, x.line.mode, x.plannedPlatform));
     if (o.stopName && x.stop) sub.push('<span class="pf">' + esc(x.stop.name) + '</span>');
     let h = '<div class="dep-item' + (x.cancelled ? ' cancel' : '') + '"><button class="dep" data-i="' + i + '">' +
-      C.badges(x.line, { upper: true }) +
+      C.badges(x.line, { upper: true, rt: !!x.realtime }) +
       '<div style="min-width:0"><div class="dep-name">' + esc(x.headsign || '–') + '</div><div class="dep-sub">' + sub.join('<i class="sep"> • </i>') + '</div></div>' +
-      '<div class="dep-r"><div class="cd ' + (x.cancelled ? 'c-red' : st.cls === 'c-gray' ? '' : st.cls) + '">' + C.countdown(x.time, true) + '</div><div class="clk">' + clk + '</div></div>' +
+      '<div class="dep-r"><div class="cd ' + C.delayCls(x) + '">' + C.countdown(x.time, true) + '</div><div class="clk">' + clk + '</div></div>' +
       '<span class="chev">' + icon('right') + '</span></button>';
     if (o.alerts !== false) h += C.infoLines(x, i);
     return h + '</div>';

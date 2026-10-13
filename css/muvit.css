@@ -113,6 +113,14 @@ svg.i { width: 20px; height: 20px; flex: none; display: block; }
 .bd.sm.m svg.i { width: 13px; height: 13px; }
 .bd.sm.round { border-radius: 10px; }
 .vsep { width: 1.6px; height: 20px; background: #fff; margin: 0 3px; flex: none; }
+/* Echtzeit-Zeichen oben rechts über den Linienzeichen */
+.bds.has-rt { position: relative; }
+.dep .bds.has-rt { margin-right: 4px; }
+.rtb { position: absolute; top: -8px; right: -9px; width: 17px; height: 17px; border-radius: 50%; background: #000; border: 1.5px solid #fff; display: grid; place-items: center; z-index: 2; box-sizing: border-box; }
+.rtb svg.i { width: 10px; height: 10px; }
+.rtb.ok svg.i { color: #34C759; }
+.rtb.no svg.i { color: #FF3B30; }
+a.btn-o { text-decoration: none; }
 
 /* ---------- Zeiten & Status ---------- */
 .c-green { color: var(--green); } .c-red { color: var(--red); } .c-orange { color: var(--orange); }
@@ -238,12 +246,16 @@ svg.i { width: 20px; height: 20px; flex: none; display: block; }
 .rl-node { left: 25px; width: 0; height: 0; }
 .rl-node::before { content: ""; box-sizing: border-box; position: absolute; left: -10px; top: -10px; width: 20px; height: 20px; border-radius: 50%; background: #fff; z-index: 2; }
 .rl-node::after { content: ""; box-sizing: border-box; position: absolute; left: -8px; top: -8px; width: 16px; height: 16px; border-radius: 50%; background: var(--dc, #fff); border: 3.5px solid var(--c); z-index: 3; }
-/* Hinweise je Halt: Meldungen und Anschlüsse */
-.tinfo { margin-top: 6px; display: grid; gap: 4px; }
+/* Hinweise je Halt: Meldungen und Anschlüsse (eigene Zeile über die volle Breite) */
+.tinfo { grid-column: 1 / -1; margin-top: 8px; display: grid; gap: 6px; }
 .tinfo .ti { display: grid; grid-template-columns: 16px 1fr; gap: 7px; align-items: start; font-size: 14px; line-height: 1.45; color: #C9C9CC; white-space: normal; }
 .tinfo .ti svg.i { width: 15px; height: 15px; margin-top: 2px; color: var(--blue); }
 .tinfo .ti.warn svg.i { color: var(--warn); }
-.tinfo .cx { white-space: nowrap; }
+.tinfo .cxh { display: block; color: var(--gray); font-size: 13px; margin-bottom: 2px; }
+.tinfo .cx { display: flex; align-items: center; gap: 8px; min-width: 0; margin-top: 3px; }
+.tinfo .cx .ref { margin: 0; }
+.tinfo .cxt { min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tinfo .cx b { font-weight: 600; color: #fff; }
 .trip-head .to-ar { width: 20px; height: 20px; color: #fff; flex: none; }
 .trip-gap { padding: 14px var(--pad) 4px; }
 .trip-gap .alert-line { padding-bottom: 6px; }
@@ -266,13 +278,18 @@ svg.i { width: 20px; height: 20px; flex: none; display: block; }
 
 /* ---------- Verbindung (Detail) ---------- */
 .vb { position: relative; padding-top: 18px; }
-.vb-leg { position: relative; --c: #59639F; }
-.vb-rail { position: absolute; left: 81px; width: 4px; background: var(--c); }
+.vb-leg { position: relative; --c: #59639F; isolation: isolate; }
+/* Linie wie im Fahrtverlauf: Linienfarbe, weiß umrandet; große Kreise gehen nahtlos in die Linie über */
+.vb-rail { position: absolute; left: 77px; width: 12px; }
+.vb-rail::before { content: ""; position: absolute; inset: 0; background: #fff; z-index: 1; }
+.vb-rail::after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; right: 2px; background: var(--c); z-index: 2; }
 .vb-stop { position: relative; display: grid; grid-template-columns: 1fr auto; column-gap: 12px; align-items: start; min-height: 30px; padding: 0 var(--pad) 0 109px; }
 .vb-stop .bstg { margin-top: 5px; }
 .vb-time { position: absolute; left: 0; top: 4px; width: 60px; text-align: right; font-size: 17px; font-weight: 600; line-height: 22px; }
 .vb-time .d { font-size: 15px; font-weight: 500; margin-top: 3px; line-height: 18px; }
-.vb-node { position: absolute; left: 76px; top: 8px; width: 14px; height: 14px; border-radius: 50%; background: var(--dc, #fff); border: 3px solid var(--c); z-index: 1; }
+.vb-node { position: absolute; left: 83px; top: 15px; width: 0; height: 0; }
+.vb-node::before { content: ""; box-sizing: border-box; position: absolute; left: -10px; top: -10px; width: 20px; height: 20px; border-radius: 50%; background: #fff; z-index: 1; }
+.vb-node::after { content: ""; box-sizing: border-box; position: absolute; left: -8px; top: -8px; width: 16px; height: 16px; border-radius: 50%; background: var(--dc, #fff); border: 3.5px solid var(--c); z-index: 2; }
 .vb-name { font-size: 17px; font-weight: 600; line-height: 22px; padding: 4px 0; cursor: pointer; }
 .vb-body { padding: 18px var(--pad) 18px 109px; }
 .vb-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -285,7 +302,7 @@ svg.i { width: 20px; height: 20px; flex: none; display: block; }
 .vb-inter { display: none; margin: 6px calc(-1 * var(--pad)) -6px -109px; }
 .vb-inter.open { display: block; }
 .vb-inter .ist { position: relative; display: grid; grid-template-columns: 1fr auto; align-items: center; height: 41px; padding: 0 var(--pad) 0 109px; }
-.vb-inter .ist::before { content: ""; position: absolute; left: 79px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: var(--dc, #fff); }
+.vb-inter .ist::before { content: ""; position: absolute; left: 79.5px; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%; background: var(--dc, #fff); z-index: 3; }
 .vb-inter .ist .n { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; min-width: 0; }
 .vb-inter .ist .n span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vb-inter .ist .t { font-size: 16px; font-weight: 600; }
@@ -447,6 +464,20 @@ input.inp::-webkit-date-and-time-value { text-align: left; }
 .pop-actions button.p { border-color: var(--accent); color: var(--accent); }
 .maplibregl-ctrl-attrib { font-family: var(--font); font-size: 10.5px; }
 .maplibregl-ctrl-top-right { top: var(--safe-t); }
+
+/* ---------- Überwachte Verbindung ---------- */
+.watch-bar { position: absolute; top: calc(var(--safe-t) + 10px); left: 12px; right: 56px; z-index: 15; display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 12px; border-radius: 14px; background: var(--bg); border: 1px solid var(--sep); box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+.watch-bar[hidden] { display: none; }
+.watch-bar .wb-i { width: 22px; height: 22px; color: var(--accent); flex: none; }
+.watch-bar.alarm { border-color: var(--red); }
+.watch-bar.alarm .wb-i { color: var(--warn); }
+.watch-bar .wb-t { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.watch-bar .wb-t b { font-size: 14px; font-weight: 600; line-height: 1.25; }
+.watch-bar:not([hidden]) ~ .toasts { top: calc(var(--safe-t) + 82px); }
+.watch-bar .wb-t span { font-size: 13px; color: var(--gray); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.watch-bar .wb-b { height: 32px; padding: 0 10px; border-radius: 8px; background: var(--accent); color: #131418; font-weight: 600; font-size: 13px; flex: none; }
+.watch-bar .wb-x { width: 30px; height: 30px; display: grid; place-items: center; color: var(--gray); flex: none; }
+.watch-bar .wb-x svg.i { width: 20px; height: 20px; }
 
 /* ---------- Toasts ---------- */
 .toasts { position: absolute; top: calc(var(--safe-t) + 12px); left: 50%; transform: translateX(-50%); z-index: 100; display: flex; flex-direction: column; gap: 8px; width: min(92vw, 440px); pointer-events: none; }
