@@ -25,9 +25,18 @@ Muvit ist eine App für Magdeburg: Haltestellen und Orte erscheinen ohne den Zus
 
 In der Verbindung startet „Überwachen“ die Überwachung. Muvit prüft dann jede Minute die Echtzeit aller Teilstrecken. Wird ein Umstieg zu knapp oder fällt eine Fahrt aus, kommt eine Mitteilung mit den schnellsten Alternativen ab dem Umstiegshalt. Oben erscheint eine Leiste mit „Alternativen“.
 
-Auf dem iPhone gibt es Mitteilungen nur, wenn Muvit auf dem Home-Bildschirm liegt (ab iOS 16.4). Außerdem prüft Muvit nur, solange die App läuft. Für Mitteilungen bei geschlossener App bräuchte es einen eigenen Push-Server.
+Auf dem iPhone gibt es Mitteilungen nur, wenn Muvit auf dem Home-Bildschirm liegt (ab iOS 16.4).
+
+Ohne weitere Einrichtung prüft Muvit nur, solange die App geöffnet ist. Für Mitteilungen bei **geschlossener App** liegt im Ordner [`push/`](push/README.md) ein kleiner Push-Dienst als kostenloser Cloudflare Worker bereit. Er prüft jede Minute und meldet:
+- verpasste Anschlüsse mit der schnellsten Alternative
+- Ausfälle
+- Verspätungen ab 5 Minuten
+
+Nach der einmaligen Einrichtung reicht es, in `js/core.js` die Adresse und den öffentlichen Schlüssel einzutragen.
 
 ### Durchläufer („fährt weiter als …“)
+
+Muvit zeigt Linienwechsel nur an den Wechsel-Haltestellen der MVB: **City Carré** und **Hauptbahnhof** (`CONFIG.changeStops` in `js/core.js`). An normalen Endstellen wie Klinikum Olvenstedt fährt einfach die nächste Linie ab. Dort erscheint kein „weiter als“.
 
 Die Fahrplandaten enthalten nicht direkt, ob ein Fahrzeug als andere Linie weiterfährt. Muvit erkennt das so: Endet eine Fahrt, sucht Muvit an der Endhaltestelle eine andere Linie desselben Verkehrsmittels, die dort beginnt und kurz danach (bis 12 Minuten) am selben Bahnsteig abfährt. Für „kommt als …“ gilt das umgekehrt. Hinweise aus den Störungsmeldungen werden zusätzlich ausgewertet.
 
@@ -96,7 +105,8 @@ js/ui.js                Ziehbares Sheet, Navigation, Komponenten (Badges, Abfahr
 js/views.js             Alle Ansichten
 js/assistant.js         Muvit KI (Claude-Tool-Use + Basis-Modus)
 js/watch.js             Verbindung überwachen, Mitteilungen bei verpasstem Anschluss
-sw.js                   Service Worker für Mitteilungen
+sw.js                   Service Worker für Mitteilungen (auch Web Push)
+push/                   Push-Dienst (Cloudflare Worker) für Mitteilungen bei geschlossener App
 js/app.js               Start & Verdrahtung
 js/vendor/              Anthropic-SDK als Browser-Bundle (MIT, Safari-kompatibel gebaut)
 assets/                 App-Icon (SVG) und PNG-Icons für iOS/Android

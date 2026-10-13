@@ -1,0 +1,21 @@
+# Muvit Push – Cloudflare Worker (kostenloser Tarif reicht)
+name = "muvit-push"
+main = "worker.mjs"
+compatibility_date = "2025-06-01"
+
+# Speicher für überwachte Verbindungen – ID nach „wrangler kv namespace create WATCHES“ hier eintragen
+[[kv_namespaces]]
+binding = "WATCHES"
+id = "HIER_KV_ID_EINTRAGEN"
+
+# jede Minute prüfen
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+# Adresse der App (für CORS) – bei GitHub Pages:
+ALLOW_ORIGIN = "https://loris6.github.io"
+# öffentlicher VAPID-Schlüssel (aus „node vapid-keys.mjs“); der private Schlüssel kommt als Secret:
+#   npx wrangler secret put VAPID_PRIVATE
+VAPID_PUBLIC = "HIER_OEFFENTLICHEN_SCHLUESSEL_EINTRAGEN"
+VAPID_SUBJECT = "mailto:deine-mail@example.org"

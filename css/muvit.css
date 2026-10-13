@@ -115,11 +115,11 @@ svg.i { width: 20px; height: 20px; flex: none; display: block; }
 .vsep { width: 1.6px; height: 20px; background: #fff; margin: 0 3px; flex: none; }
 /* Echtzeit-Zeichen oben rechts über den Linienzeichen */
 .bds.has-rt { position: relative; }
-.dep .bds.has-rt { margin-right: 4px; }
-.rtb { position: absolute; top: -8px; right: -9px; width: 17px; height: 17px; border-radius: 50%; background: #000; border: 1.5px solid #fff; display: grid; place-items: center; z-index: 2; box-sizing: border-box; }
-.rtb svg.i { width: 10px; height: 10px; }
-.rtb.ok svg.i { color: #34C759; }
-.rtb.no svg.i { color: #FF3B30; }
+.dep .bds.has-rt { margin-right: 9px; }
+.rtb { position: absolute; top: -6px; right: -10px; height: 12px; min-width: 19px; padding: 0 4px; border-radius: 6px; background: rgb(50, 50, 50); display: grid; place-items: center; z-index: 2; box-sizing: border-box; }
+.rtb svg.i { width: 10px; height: 10px; color: #fff; }
+/* Linien gruppiert: [Tram] 1 2 3 */
+.bds.lg { gap: 4px; }
 a.btn-o { text-decoration: none; }
 
 /* ---------- Zeiten & Status ---------- */
@@ -244,6 +244,15 @@ a.btn-o { text-decoration: none; }
 .rl-dot { left: 25px; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%; background: var(--dc, #fff); z-index: 4; }
 .rl-dot.past { width: 12px; height: 12px; margin: -6px 0 0 -6px; background: #5F6065; border: 2px solid #A0A1A6; z-index: 2; }
 .rl-node { left: 25px; width: 0; height: 0; }
+/* Halt entfällt (Baustelle o. Ä.): rotes Kreuz auf der Linie */
+.rl-x { left: 25px; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: #fff; display: grid; place-items: center; z-index: 5; }
+.rl-x svg.i { width: 16px; height: 16px; color: #E0201B; }
+.trow.cx .nm span { color: var(--gray); text-decoration: line-through; }
+.trow .wc-ic { display: inline-grid; place-items: center; flex: none; color: #fff; }
+.trow .wc-ic svg.i { width: 17px; height: 17px; }
+.trow .wc-ic.no { color: var(--gray); position: relative; }
+.trow .wc-ic.no::after { content: ""; position: absolute; left: 50%; top: -1px; bottom: -1px; width: 2px; background: var(--red); transform: rotate(45deg); }
+.trow.past .wc-ic { opacity: .5; }
 .rl-node::before { content: ""; box-sizing: border-box; position: absolute; left: -10px; top: -10px; width: 20px; height: 20px; border-radius: 50%; background: #fff; z-index: 2; }
 .rl-node::after { content: ""; box-sizing: border-box; position: absolute; left: -8px; top: -8px; width: 16px; height: 16px; border-radius: 50%; background: var(--dc, #fff); border: 3.5px solid var(--c); z-index: 3; }
 /* Hinweise je Halt: Meldungen (eigene Zeile über die volle Breite) */
@@ -302,6 +311,9 @@ a.btn-o { text-decoration: none; }
 .vb-inter .ist .n span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vb-inter .ist .t { font-size: 16px; font-weight: 600; }
 .vb-inter .ist.cx .n span { text-decoration: line-through; color: var(--red); }
+.vb-inter .ist.cx::before { display: none; }
+.vb-inter .ist .xm { position: absolute; left: 74px; top: 50%; width: 18px; height: 18px; margin-top: -9px; border-radius: 50%; background: #fff; display: grid; place-items: center; z-index: 3; }
+.vb-inter .ist .xm svg.i { width: 16px; height: 16px; color: #E0201B; }
 .vb-dur { position: absolute; left: 0; width: 58px; text-align: right; color: var(--gray); font-size: 14px; line-height: 18px; transform: translateY(-50%); }
 .vb-walk { position: relative; display: flex; align-items: center; min-height: 52px; background: var(--band); border-top: 1px solid var(--sep); border-bottom: 1px solid var(--sep); padding: 8px var(--pad) 8px 121px; margin: 16px 0; font-size: 16px; font-weight: 500; }
 .vb-walk .wl { position: absolute; left: 0; width: 58px; text-align: right; color: var(--gray); font-size: 14px; font-weight: 400; }

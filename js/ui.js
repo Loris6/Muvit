@@ -47,8 +47,21 @@
     const rt = o.rt === undefined ? '' : C.rtBadge(o.rt);
     return '<span class="bds' + (rt ? ' has-rt' : '') + '">' + C.modeBadge(line.mode, o, line) + C.lineBadge(line, o) + rt + '</span>';
   };
-  /** Echtzeit-Zeichen: schwarzer Kreis mit weißem Rand, WLAN grün (Echtzeit) bzw. rot (nur Fahrplan) */
-  C.rtBadge = (on) => '<span class="rtb ' + (on ? 'ok' : 'no') + '" title="' + (on ? 'Echtzeitdaten' : 'Keine Echtzeitdaten – Fahrplan') + '">' + icon('wifi') + '</span>';
+  /** Echtzeit-Zeichen: kleine abgerundete Kapsel (RGB 50,50,50) mit weißem WLAN-Zeichen (Punkt + ein Bogen) */
+  C.rtBadge = (on) => (on ? '<span class="rtb" title="Echtzeitdaten">' + icon('wifi2') + '</span>' : '');
+  /** Mehrere Linien gruppiert: Verkehrsmittel-Zeichen einmal, dann alle Nummern – [Tram] 1 2 3 · [Bus] 48 73 */
+  C.lineGroups = function (lines, o) {
+    o = o || {};
+    const groups = [];
+    M.sortLines(lines || []).forEach((l) => {
+      const k = l.mode === 'regio' || l.mode === 'fern' ? (M.isDBLine(l) ? 'db' : 'zug') : l.mode;
+      let g = groups.find((x) => x.k === k);
+      if (!g) { g = { k, line: l, list: [] }; groups.push(g); }
+      if (!g.list.some((x) => x.name === l.name)) g.list.push(l);
+    });
+    const sm = o.sm !== false;
+    return groups.map((g) => '<span class="bds lg">' + C.modeBadge(g.line.mode, { sm }, g.line) + g.list.map((l) => C.lineBadge(l, { sm })).join('') + '</span>').join(o.sep || '');
+  };
   /** Farbe für Minuten/Countdown: grün pünktlich, blau zu früh, orange leicht verspätet, rot verspätet */
   C.delayCls = function (x) {
     if (x.cancelled) return 'c-red';
@@ -110,16 +123,39 @@
     if (ctxLine && (ctxLine.mode === 'tram' || ctxLine.mode === 'bus')) return M.isMvbTram(num) ? 'tram' : 'bus';
     return ctxLine ? ctxLine.mode : 'bus';
   }
+  const LIST_RE = /\b(Straßenbahnlinien|Straßenbahnlinie|Straßenbahnen|Straßenbahn|Tram|STR|Buslinien|Buslinie|Busse|Bus|Linien|Linie|S-Bahn|S|U|RE|RB|IRE|ICE|IC|EC|ECE)\s?(\d{1,5}[a-zA-Z]?(?:\s*(?:,|\/|&amp;|und|u\.)\s*\d{1,5}[a-zA-Z]?)+)\b/g;
+  const KW_LIST = { 'Straßenbahnlinien': 'tram', 'Straßenbahnen': 'tram', Buslinien: 'bus', Busse: 'bus' };
   C.richText = function (text, ctxLine, stopName) {
+    // Ersetzungen als Platzhalter sammeln, damit spätere Durchläufe nicht in schon erzeugtes HTML greifen
+    const parts = [];
+    const tok = (html) => '\u0000' + (parts.push(html) - 1) + '\u0000';
     const badge = (name, mode) => C.badges(M.mkLine(name, mode), { sm: true });
-    let h = esc(text || '').replace(REF_RE, (all, kw, num) => {
+    const nameOf = (kw, num, mode) => (mode === 'sbahn' || mode === 'ubahn' || mode === 'regio' ? kw.replace('S-Bahn', 'S') + num : mode === 'fern' ? kw + ' ' + num : num);
+    let h = esc(text || '');
+    // Listen: „Tram 1, 2 und 3“ → [Tram] 1 2 3 (Verkehrsmittel-Zeichen nur einmal)
+    h = h.replace(LIST_RE, (all, kw, list) => {
+      const lines = list.split(/\s*(?:,|\/|&amp;|und|u\.)\s*/).filter(Boolean)
+        .map((num) => { const mode = KW_LIST[kw] || KW_MODE[kw] || guessMode(num, ctxLine, stopName); return M.mkLine(nameOf(kw, num, mode), mode); });
+      return tok('<span class="ref">' + C.lineGroups(lines, { sep: ' ' }) + '</span>');
+    });
+    h = h.replace(REF_RE, (all, kw, num) => {
       const mode = KW_MODE[kw] || guessMode(num, ctxLine, stopName);
-      const name = mode === 'sbahn' || mode === 'ubahn' || mode === 'regio' ? kw.replace('S-Bahn', 'S') + num : mode === 'fern' ? kw + ' ' + num : num;
-      return '<span class="ref">' + badge(name, mode) + '</span>';
+      return tok('<span class="ref">' + badge(nameOf(kw, num, mode), mode) + '</span>');
     });
     // „fährt weiter als 3“ / „kommt als 73“ ohne Verkehrsmittel
-    h = h.replace(/(weiter als|kommt als|kommend als)\s+(\d{1,3}[a-zA-Z]?)\b/gi, (all, w, num) => w + ' <span class="ref">' + badge(num, guessMode(num, ctxLine, stopName)) + '</span>');
-    return h;
+    h = h.replace(/(weiter als|kommt als|kommend als)\s+(\d{1,3}[a-zA-Z]?)\b/gi, (all, w, num) => w + ' ' + tok('<span class="ref">' + badge(num, guessMode(num, ctxLine, stopName)) + '</span>'));
+    return h.replace(/\u0000(\d+)\u0000/g, (a, k) => parts[+k]);
+  };
+  const nn = (v) => M.localName(v || '').toLowerCase().replace(/[^a-z0-9äöüß]/g, '');
+  /** Ist ein Text-Hinweis zum Linienwechsel sinnvoll? */
+  C.throughNoteOk = function (text, x) {
+    const t = String(text || '');
+    if (!/(weiter\s+als|kommt\s+als|kommend\s+als|Linienwechsel)/i.test(t)) return true;
+    const dest = (t.match(/\bnach\s+(.+?)[.!]?\s*$/i) || [])[1];
+    const here = x && x.stop && x.stop.name;
+    if (dest && (nn(dest) === nn(here) || (x && nn(dest) === nn(x.headsign)))) return false;
+    const at = (t.match(/\bab\s+(.+?)\s+(?:weiter|als)\b/i) || [])[1] || (x && x.headsign) || here;
+    return M.isChangeStop(at);
   };
   /** Hinweiszeilen unter einer Linie: Störungen/Umleitungen (Warnung) und Durchläufer (Info) */
   C.infoLines = function (x, i, o) {
@@ -130,8 +166,9 @@
       h += '<button class="alert-line" data-alert="' + i + ':' + k + '">' + icon('warnFill', 'w') + '<span class="tx">' + C.richText(a.title, x.line, at) + '</span><span class="chev">' + (a.text ? icon('right') : '') + '</span></button>';
     });
     const note = (html) => '<div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">' + html + '</span><span></span></div>';
-    // Textnotizen zu Durchläufern nicht doppelt zeigen, wenn die Weiterfahrt schon erkannt ist
-    (x.notes || []).filter((n) => !(x.cont && /weiter\s+als/i.test(n.text)) && !(x.comes && /kommt\s+als/i.test(n.text))).slice(0, 2)
+    // Textnotizen zu Durchläufern nicht doppelt zeigen, wenn die Weiterfahrt schon erkannt ist,
+    // und unsinnige weglassen (z. B. „… weiter nach City Carré“ an City Carré, Wechsel an normalen Endstellen)
+    (x.notes || []).filter((n) => !(x.cont && /weiter\s+als/i.test(n.text)) && !(x.comes && /kommt\s+als/i.test(n.text)) && C.throughNoteOk(n.text, x)).slice(0, 2)
       .forEach((n) => { h += note(C.richText(n.text, x.line, at)); });
     // Durchläufer: „Kommt als [Tram][2] aus …“ / „Fährt weiter als [Tram][13] nach …“
     if (x.comes) h += note('Kommt als <span class="ref">' + C.badges(x.comes.line, { sm: true }) + '</span>' + (x.comes.from ? ' aus ' + esc(x.comes.from) : ''));
