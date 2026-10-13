@@ -246,16 +246,11 @@ a.btn-o { text-decoration: none; }
 .rl-node { left: 25px; width: 0; height: 0; }
 .rl-node::before { content: ""; box-sizing: border-box; position: absolute; left: -10px; top: -10px; width: 20px; height: 20px; border-radius: 50%; background: #fff; z-index: 2; }
 .rl-node::after { content: ""; box-sizing: border-box; position: absolute; left: -8px; top: -8px; width: 16px; height: 16px; border-radius: 50%; background: var(--dc, #fff); border: 3.5px solid var(--c); z-index: 3; }
-/* Hinweise je Halt: Meldungen und Anschlüsse (eigene Zeile über die volle Breite) */
+/* Hinweise je Halt: Meldungen (eigene Zeile über die volle Breite) */
 .tinfo { grid-column: 1 / -1; margin-top: 8px; display: grid; gap: 6px; }
 .tinfo .ti { display: grid; grid-template-columns: 16px 1fr; gap: 7px; align-items: start; font-size: 14px; line-height: 1.45; color: #C9C9CC; white-space: normal; }
 .tinfo .ti svg.i { width: 15px; height: 15px; margin-top: 2px; color: var(--blue); }
 .tinfo .ti.warn svg.i { color: var(--warn); }
-.tinfo .cxh { display: block; color: var(--gray); font-size: 13px; margin-bottom: 2px; }
-.tinfo .cx { display: flex; align-items: center; gap: 8px; min-width: 0; margin-top: 3px; }
-.tinfo .cx .ref { margin: 0; }
-.tinfo .cxt { min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tinfo .cx b { font-weight: 600; color: #fff; }
 .trip-head .to-ar { width: 20px; height: 20px; color: #fff; flex: none; }
 .trip-gap { padding: 14px var(--pad) 4px; }
 .trip-gap .alert-line { padding-bottom: 6px; }

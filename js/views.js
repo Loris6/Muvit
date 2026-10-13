@@ -580,7 +580,6 @@
       const headHTML = (line, to, rt) => '<div class="trip-head">' + C.badges(line, rt === undefined ? {} : { rt }) + icon('arrow', 'to-ar') + '<span class="to">' + esc(to) + '</span></div>';
       if (p.line) ctx.extra(headHTML(p.line, '…'));
       ctx.body.innerHTML = C.skel(7);
-      st.conn = st.conn || {};
 
       /** Fahrt am angezeigten Ziel teilen (z. B. Linie 2 bis City Carré); der Rest ist die Weiterfahrt */
       function cutTrip(t) {
@@ -591,15 +590,10 @@
         const rest = Object.assign({}, t, { stops: t.stops.slice(h), coords: t.coords.slice(ci[h] || 0), headsign: t.stops[t.stops.length - 1].name, next: null, continues: null });
         return { main, rest };
       }
-      const timeOf = (x) => (x ? M.fmtTime(x) : '');
-      /** Hinweise an einem Halt: Haltestellen-Meldungen und Anschlüsse */
+      /** Hinweise an einem Halt: Meldungen zur Haltestelle */
       function stopInfo(s, line) {
         let h = '';
         (s.alerts || []).slice(0, 2).forEach((a) => { h += '<div class="ti warn">' + icon('warnFill') + '<span>' + C.richText(a.title, line, s.name) + '</span></div>'; });
-        const cn = st.conn[(s.id || s.name) + '|' + line.name];
-        if (cn && cn.length) {
-          h += '<div class="ti">' + icon('transfer') + '<span><span class="cxh">Anschluss</span>' + cn.map((c) => '<span class="cx"><span class="ref">' + C.badges(c.line, { sm: true }) + '</span><span class="cxt">' + esc(c.headsign) + '</span><b>' + timeOf(c.time) + '</b></span>').join('') + '</span></div>';
-        }
         return h ? '<div class="tinfo">' + h + '</div>' : '';
       }
       /** Halte einer Fahrt als Zeitstrahl in Linienfarbe */
@@ -674,23 +668,6 @@
           if (target && main.next > 3) setTimeout(() => { if (ctx.alive()) ctx.body.scrollTop = target.offsetTop; }, 60);
         }
         placeVehicle();
-        loadConnections(parts, now);
-      }
-      /** Anschlüsse an den nächsten Halten nachladen (je Halt eine Abfrage, zwischengespeichert) */
-      let connPending = false;
-      function loadConnections(parts, now) {
-        parts.forEach((pt) => {
-          const nx = firstOpen(railProgress(pt, now), pt.stops.length);
-          pt.stops.slice(nx, nx + 5).forEach((s) => {
-            const key = (s.id || s.name) + '|' + pt.line.name;
-            if (key in st.conn || !s.id) return;
-            st.conn[key] = null;
-            M.Transit.connections(s, s.arr || s.dep || s.arrPlanned || s.depPlanned, pt.line, st.nextInfo && st.nextInfo.tripId).then((list) => {
-              st.conn[key] = list || [];
-              if (list && list.length && ctx.alive() && !connPending) { connPending = true; requestAnimationFrame(() => { connPending = false; if (ctx.alive()) draw(); }); }
-            });
-          });
-        });
       }
       /** Weiterfahrt als andere Linie ermitteln und als zweiten Abschnitt anhängen */
       async function loadNext() {

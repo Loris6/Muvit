@@ -706,19 +706,6 @@
         return c ? { line: c.line, from: c.origin ? c.origin.name : '', tripId: c.tripId, src: 'motis' } : null;
       });
     },
-    /** Anschlüsse an einem Halt: andere Linien, die 1–10 Minuten nach der Ankunft abfahren */
-    connections(s, arr, line, skipTrip) {
-      if (!s || !s.id || !arr) return Promise.resolve([]);
-      const t0 = +arr;
-      return memo('x|' + s.id + '|' + bucket(t0).getTime() + '|' + (line ? line.mode + line.name : ''), async () => {
-        const r = await M.Transit.departures({ id: s.id, name: s.name, lat: s.lat, lon: s.lon, type: 'stop', src: 'motis' }, { n: 60, time: bucket(t0) });
-        const seen = new Set();
-        return r.list.filter((d) => !d.cancelled && d.line && d.tripId !== skipTrip && !(line && d.line.name === line.name && d.line.mode === line.mode) &&
-            d.time - t0 >= 60000 && d.time - t0 <= 10 * 60000)
-          .filter((d) => { const k = d.line.mode + d.line.name + d.headsign; if (seen.has(k)) return false; seen.add(k); return true; })
-          .slice(0, 3).map((d) => ({ line: d.line, headsign: d.headsign, time: d.time, tripId: d.tripId }));
-      });
-    },
     /** Bekanntes Ergebnis ohne neue Anfrage (für sofortiges Zeichnen) */
     known: (key) => (MEMO.has(key) ? MEMO.get(key).value : undefined),
 
