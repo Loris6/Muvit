@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+  <title>Muvit – Mobilität für Magdeburg</title>
+  <meta name="description" content="Muvit: Verbindungen, Abfahrten in Echtzeit, Live-Karte, Haltestellen in der Nähe und KI-Assistent für Magdeburg und ganz Deutschland.">
+  <meta name="theme-color" content="#5B45FF">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Muvit">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="css/muvit.css">
+</head>
+<body>
+  <div id="app" class="is-home">
+    <!-- Vollflächige Karte -->
+    <div id="map" aria-label="Karte"></div>
+
+    <!-- Overlay: Startframe -->
+    <div class="overlay-col" id="overlayCol">
+      <header class="topbar" id="topbar">
+        <button class="brand glass" id="brandBtn" aria-label="Muvit Start">
+          <span class="brand-logo" aria-hidden="true"></span>
+          <span class="brand-word">muvit</span>
+        </button>
+        <div class="topbar-actions">
+          <button class="icon-btn glass" id="favBtn" aria-label="Favoriten und Verlauf"></button>
+          <button class="icon-btn glass" id="settingsBtn" aria-label="Einstellungen"></button>
+        </div>
+      </header>
+
+      <!-- Kompakte Routen-Pille (für Verbindungsansichten) -->
+      <div class="route-pill glass" id="routePill"></div>
+
+      <!-- Suchkarte Von–Bis -->
+      <section class="search-card glass" id="searchCard" aria-label="Verbindung suchen">
+        <div class="search-rows">
+          <button class="search-row" id="fromBtn">
+            <span class="search-dot from" aria-hidden="true"></span>
+            <span class="search-text">
+              <span class="search-label">Von</span>
+              <span class="search-value" id="fromValue">Mein Standort</span>
+            </span>
+          </button>
+          <div class="search-divider"></div>
+          <button class="search-row" id="toBtn">
+            <span class="search-dot to" aria-hidden="true"></span>
+            <span class="search-text">
+              <span class="search-label">Nach</span>
+              <span class="search-value placeholder" id="toValue">Wohin soll's gehen?</span>
+            </span>
+          </button>
+          <button class="swap-btn" id="swapBtn" aria-label="Start und Ziel tauschen"></button>
+        </div>
+        <div class="search-foot">
+          <button class="chip chip-time" id="timeBtn"></button>
+          <button class="chip chip-via" id="viaBtn"></button>
+          <button class="btn-go" id="goBtn"><span>Los</span></button>
+        </div>
+      </section>
+
+      <div class="recent-row" id="recentRow"></div>
+
+      <!-- Sechs Schnellzugriffe -->
+      <nav class="dock glass" id="dock" aria-label="Schnellzugriff">
+        <button class="tile" data-view="departures"><span class="tile-ico g-dep"></span><span class="tile-label">Abfahrten</span></button>
+        <button class="tile" data-view="nearby"><span class="tile-ico g-near"></span><span class="tile-label">In der Nähe</span></button>
+        <button class="tile" data-view="live"><span class="tile-ico g-live"></span><span class="tile-label">Live-Karte</span></button>
+        <button class="tile" data-view="lines"><span class="tile-ico g-lines"></span><span class="tile-label">Linien</span></button>
+        <button class="tile" data-view="tickets"><span class="tile-ico g-tix"></span><span class="tile-label">Tickets &amp; Preise</span></button>
+        <button class="tile tile-ai" data-view="assistant"><span class="tile-ico g-ai"></span><span class="tile-label">Muvit KI</span></button>
+      </nav>
+    </div>
+
+    <!-- Kartensteuerung -->
+    <div class="map-ctrls" id="mapCtrls">
+      <button class="icon-btn glass" id="layersBtn" aria-label="Kartenebenen"></button>
+      <button class="icon-btn glass" id="locateBtn" aria-label="Mein Standort"></button>
+    </div>
+    <div class="live-badge glass" id="liveBadge" hidden></div>
+
+    <!-- Bottom-Sheet / Seitenpanel -->
+    <section class="sheet glass-strong" id="sheet" aria-live="polite" hidden>
+      <div class="sheet-grip" id="sheetGrip"><span></span></div>
+      <header class="sheet-head" id="sheetHead"></header>
+      <div class="sheet-body" id="sheetBody"></div>
+    </section>
+
+    <div class="toast-wrap" id="toasts" aria-live="assertive"></div>
+  </div>
+
+  <noscript><p style="padding:24px;font-family:sans-serif">Muvit benötigt JavaScript.</p></noscript>
+
+  <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/tariffs.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/views.js"></script>
+  <script src="js/assistant.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
