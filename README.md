@@ -39,7 +39,25 @@ python3 -m http.server 8080
 npx serve .
 ```
 
-Danach `http://localhost:8080` öffnen. Für das Smartphone die App per HTTPS hosten (z. B. GitHub Pages) und optional „Zum Home-Bildschirm hinzufügen“ wählen (Web-App-Manifest liegt bei).
+Danach `http://localhost:8080` öffnen. Für das Smartphone die App per HTTPS hosten (siehe unten).
+
+## Auf dem iPhone (iOS)
+
+Muvit läuft in Safari auf **iOS 15 oder neuer**, ebenso als Web-App auf dem Home-Bildschirm.
+
+1. **Per HTTPS hosten**, z. B. mit GitHub Pages oder Netlify. iOS gibt den Standort nur auf `https://`-Seiten frei. Eine lokale Adresse wie `http://192.168…` reicht dafür nicht.
+2. Die Seite in **Safari** öffnen und den Standortzugriff erlauben.
+3. Über **Teilen → „Zum Home-Bildschirm“** installieren. Muvit startet dann im Vollbild mit eigenem App-Icon.
+
+Für iOS ist bereits gesorgt:
+- Safe-Area für Notch und Home-Indikator
+- Kein Hineinzoomen beim Tippen in Eingabefelder
+- Das Sheet bleibt über der Bildschirmtastatur
+- Kein Gummiband-Scrollen der Seite
+- PNG-App-Icon
+- Claude-SDK ohne Regex-Lookbehind, damit es auch vor iOS 16.4 lädt
+
+Die Spracheingabe der KI nutzt die Diktierfunktion von iOS. Sie muss in den Einstellungen aktiviert sein.
 
 ## Muvit KI einrichten
 
@@ -65,7 +83,8 @@ js/ui.js                Sheet-Navigation, Layout, Komponenten (Verbindungskarten
 js/views.js             Alle Ansichten
 js/assistant.js         Muvit KI (Claude-Tool-Use + Basis-Modus)
 js/app.js               Start & Verdrahtung
-js/vendor/              Anthropic-SDK als Browser-Bundle (MIT)
+js/vendor/              Anthropic-SDK als Browser-Bundle (MIT, Safari-kompatibel gebaut)
+assets/                 Logo (SVG) und App-Icons (PNG für iOS/Android)
 ```
 
 ## Hinweise

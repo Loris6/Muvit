@@ -145,11 +145,31 @@
     UI.sheet = $('#sheet'); UI.head = $('#sheetHead'); UI.body = $('#sheetBody');
     initDrag();
     window.addEventListener('resize', M.debounce(() => { if (UI.cur) UI.setSnap(UI.snap, true); UI.layout(); M.Map.resize(); }, 120));
+    initKeyboard();
     UI.layout();
   };
 
+  /* iOS/Android: Bildschirmtastatur – Sheet über der Tastatur halten (visualViewport) */
+  function initKeyboard() {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+      const val = kb > 80 ? kb : 0;   // kleine Schwankungen (Adressleiste) ignorieren
+      if (val === (UI.kb || 0)) return;
+      UI.kb = val;
+      document.documentElement.style.setProperty('--kb', val + 'px');
+      if (UI.cur && !M.isDesktop()) UI.setSnap(val ? 'full' : UI.snap, true);
+      UI.layout();
+    };
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    // iOS verschiebt beim Fokussieren manchmal die Seite – nach dem Schließen zurücksetzen
+    document.addEventListener('focusout', () => setTimeout(() => { if (!UI.kb) window.scrollTo(0, 0); }, 120));
+  }
+
   function snapPx(name) {
-    const H = window.innerHeight;
+    const H = window.innerHeight - (UI.kb || 0);
     const top = topReserve();
     const max = H - top;
     if (name === 'peek') return Math.min(max, Math.max(230, Math.round(H * 0.32)));
