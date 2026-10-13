@@ -73,11 +73,18 @@
     if (M.Watch) M.Watch.init();
     if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
       navigator.serviceWorker.register('sw.js').catch(() => { /* ohne Service Worker nur Hinweise in der App */ });
-      navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.type === 'open' && /alternativen/.test(e.data.url || '')) M.Watch.openAlternatives(); });
+      navigator.serviceWorker.addEventListener('message', (e) => {
+        const u = e.data && e.data.type === 'open' ? String(e.data.url || '') : '';
+        const alt = (u.match(/[?&]alt=([^&]+)/) || [])[1];
+        if (alt) M.Watch.openFromLink(decodeURIComponent(alt));
+        else if (/alternativen/.test(u)) M.Watch.openAlternatives();
+      });
     }
     try {
-      const v = new URLSearchParams(location.search).get('view');
-      if (v === 'alternativen') setTimeout(() => M.Watch.openAlternatives(), 900);
+      const sp = new URLSearchParams(location.search);
+      const v = sp.get('view');
+      if (sp.get('alt')) setTimeout(() => M.Watch.openFromLink(sp.get('alt')), 900);
+      else if (v === 'alternativen') setTimeout(() => M.Watch.openAlternatives(), 900);
       else if (v && M.Views[v] && v !== 'home') setTimeout(() => UI.open(v, {}), 500);
     } catch (e) { /* ignore */ }
   }

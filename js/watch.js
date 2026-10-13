@@ -17,8 +17,8 @@
       to: { id: to.id, name: to.name, lat: to.lat, lon: to.lon, type: to.type || 'stop', src: to.src || j.src },
       legs: j.legs.map((l) => ({
         walk: !!l.walk, duration: l.duration || 0, tripId: l.tripId || '', line: l.line, headsign: l.headsign || '',
-        from: { id: l.from.id, name: l.from.name, lat: l.from.lat, lon: l.from.lon, time: +l.from.time },
-        to: { id: l.to.id, name: l.to.name, lat: l.to.lat, lon: l.to.lon, time: +l.to.time }
+        from: { id: l.from.id, name: l.from.name, lat: l.from.lat, lon: l.from.lon, time: +l.from.time, planned: +(l.from.planned || l.from.time) },
+        to: { id: l.to.id, name: l.to.name, lat: l.to.lat, lon: l.to.lon, time: +l.to.time, planned: +(l.to.planned || l.to.time) }
       })),
       notified: {}
     };
@@ -39,15 +39,46 @@
       try { await Notification.requestPermission(); } catch (e) { /* ignore */ }
     }
     W.data = pack(j, q); W.alert = null; save();
-    M.toast('Verbindung wird überwacht – Muvit meldet sich, wenn ein Anschluss nicht klappt.', { type: 'ok', ms: 5000 });
+    const pushed = await pushStart(W.data);
+    M.toast(pushed ? 'Verbindung wird überwacht – auch wenn Muvit geschlossen ist.' : 'Verbindung wird überwacht – Muvit meldet sich, wenn ein Anschluss nicht klappt.', { type: 'ok', ms: 5000 });
     if ('Notification' in window && Notification.permission === 'denied') M.toast('Mitteilungen sind blockiert – Hinweise erscheinen nur in der App.', { type: 'err', ms: 6000 });
     M.emit('watch');
     schedule(true);
   };
   W.stop = function () {
+    if (W.data && W.data.pushId) pushStop(W.data.pushId);
     W.data = null; W.alert = null; save(); clearTimeout(timer);
     M.emit('watch');
   };
+
+  /* ---------- Mitteilungen bei geschlossener App (Web Push über den Muvit-Push-Dienst) ---------- */
+  W.pushReady = () => !!(M.CONFIG.push && M.CONFIG.push.server && M.CONFIG.push.vapidPublic && 'serviceWorker' in navigator && 'PushManager' in window);
+  function keyBytes(b64) {
+    const s = b64.replace(/-/g, '+').replace(/_/g, '/'), bin = atob(s + '==='.slice((s.length + 3) % 4));
+    return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  }
+  async function pushStart(d) {
+    if (!W.pushReady() || !('Notification' in window) || Notification.permission !== 'granted') return false;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(M.CONFIG.push.vapidPublic) });
+      const res = await fetch(M.CONFIG.push.server.replace(/\/$/, '') + '/watch', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription: sub.toJSON(), journey: d })
+      });
+      if (!res.ok) throw new Error('Push-Dienst ' + res.status);
+      d.pushId = (await res.json()).id; save();
+      return true;
+    } catch (e) {
+      M.toast('Mitteilungen bei geschlossener App gerade nicht möglich – Muvit prüft, solange die App offen ist.', { type: 'err', ms: 6000 });
+      return false;
+    }
+  }
+  function pushStop(id) {
+    if (!W.pushReady()) return;
+    fetch(M.CONFIG.push.server.replace(/\/$/, '') + '/watch/' + id, { method: 'DELETE' }).catch(() => {});
+  }
 
   /** Echtzeit der Teilstrecken holen und Umstiege prüfen */
   async function check() {
@@ -117,6 +148,8 @@
   async function notify(p) {
     const t = texts(p);
     M.toast(t.title, { type: 'err', ms: 8000 });
+    // Läuft die Überwachung über den Push-Dienst, kommt die Mitteilung von dort (keine doppelte)
+    if (W.data && W.data.pushId) return;
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
     const opt = { body: t.body, tag: 'muvit-watch', renotify: true, icon: 'assets/icon-192.png?v=2', data: { url: './?view=alternativen' } };
     try {
@@ -126,6 +159,17 @@
     } catch (e) { /* Mitteilung nicht möglich – Hinweis steht in der App */ }
   }
 
+  /** Alternativen aus einer Push-Mitteilung öffnen (?alt=…) */
+  W.openFromLink = function (raw) {
+    try {
+      const a = JSON.parse(raw);
+      M.state.from = Object.assign({ type: 'stop', src: 'motis' }, a.f);
+      M.state.to = Object.assign({ type: 'stop', src: 'motis' }, a.to);
+      M.state.via = []; M.state.time = new Date(a.t || Date.now()); M.state.arriveBy = false;
+      M.emit('state');
+      M.App.search();
+    } catch (e) { /* ungültiger Link */ }
+  };
   /** Alternativen in Muvit öffnen (aus der Leiste oder der Mitteilung) */
   W.openAlternatives = function () {
     const p = W.alert;

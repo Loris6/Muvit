@@ -8,6 +8,11 @@
     // Magdeburg (Alter Markt)
     center: { lat: 52.1316, lon: 11.6392 },
     zoom: 13.4,
+    // Haltestellen, an denen MVB-Fahrzeuge die Linie wechseln (Durchläufer). An normalen Endstellen
+    // (z. B. Klinikum Olvenstedt) zeigt Muvit keinen Linienwechsel – dort fährt einfach die nächste Linie ab.
+    changeStops: ['City Carré', 'Hauptbahnhof'],
+    // Mitteilungen bei geschlossener App (Web Push) – Adresse des eigenen Push-Dienstes, siehe push/README.md
+    push: { server: '', vapidPublic: '' },
     // Stadtgebiet Magdeburg (grob) – für Tarifhinweise
     mdBBox: { minLat: 52.03, maxLat: 52.235, minLon: 11.50, maxLon: 11.78 },
     motisBase: 'https://api.transitous.org',
@@ -37,6 +42,9 @@
     return n.replace(/^Hbf\b/, 'Hauptbahnhof');
   };
   M.isMagdeburgName = (v) => /^magdeburg$/i.test(String(v || '').trim());
+  const normName = (n) => M.localName(n || '').toLowerCase().replace(/[^a-z0-9äöüß]/g, '');
+  /** Linienwechsel-Haltestelle (City Carré, Hauptbahnhof)? */
+  M.isChangeStop = (name) => { const n = normName(name); return !!n && M.CONFIG.changeStops.some((c) => { const k = normName(c); return n === k || n.startsWith(k); }); };
   /** „Magdeburg, Sudenburg“ → „Sudenburg“ */
   M.localArea = (a) => String(a || '').split(',').map((x) => x.trim()).filter((x) => x && !M.isMagdeburgName(x)).join(', ');
 

@@ -354,7 +354,7 @@
         l.alerts.map((a) => '<div class="vb-alert">' + icon('warnFill') + '<div>' + C.richText(a.title, l.line, l.from.name) + (a.text ? '<small>' + esc(a.text.slice(0, 220)) + '</small>' : '') + '</div></div>').join('') +
         (l.notes || []).map((n) => '<div class="vb-alert note">' + icon('infoFill') + '<div>' + C.richText(n.text, l.line, l.from.name) + '</div></div>').join('') +
         (n ? '<button class="vb-tog" data-tog="' + i + '">' + icon('down') + n + (n === 1 ? ' Haltestelle' : ' Haltestellen') + '</button>' +
-          '<div class="vb-inter">' + l.stops.map((s) => '<div class="ist' + (s.cancelled ? ' cx' : '') + '"><div class="n"><span>' + esc(s.name) + '</span></div><div class="t">' + M.fmtTime(s.arr || s.dep || s.arrPlanned || s.depPlanned) + '</div></div>').join('') + '</div>' : '') +
+          '<div class="vb-inter">' + l.stops.map((s) => '<div class="ist' + (s.cancelled ? ' cx' : '') + '">' + (s.cancelled ? '<span class="xm">' + icon('close') + '</span>' : '') + '<div class="n"><span>' + esc(s.name) + '</span></div><div class="t">' + M.fmtTime(s.arr || s.dep || s.arrPlanned || s.depPlanned) + '</div></div>').join('') + '</div>' : '') +
       '</div>' +
       stopRowHTML(l.to, c, i + ':t', { realtime: l.realtime, mode: l.line.mode }) +
       '<div class="vb-dur" style="top:50%">' + Math.max(1, Math.round(l.duration)) + '<br>Min.</div></div>';
@@ -539,7 +539,8 @@
         '<div class="rl-in' + (cap ? ' cap' : '') + '" style="top:' + head + 'px;height:' + (ys[n - 1] - head) + 'px"></div>';
     }
     ys.forEach((y, i) => {
-      if (i === n - 1 || i === at) h += '<span class="rl-node" style="top:' + y + 'px"></span>';
+      if (rows[i].classList.contains('cx')) h += '<span class="rl-x" style="top:' + y + 'px">' + M.icon('close') + '</span>';   // Halt entfällt
+      else if (i === n - 1 || i === at) h += '<span class="rl-node" style="top:' + y + 'px"></span>';
       else h += '<span class="rl-dot' + (y < head - 0.5 ? ' past' : '') + '" style="top:' + y + 'px"></span>';
     });
     layer.innerHTML = h;
@@ -601,8 +602,12 @@
         const rp = railProgress(t, now);
         const next = firstOpen(rp, t.stops.length);
         const c = M.routeColor(t.line);
-        const wc = t.wheelchair ? ' • ' + icon('wheel') : '';
         const n = t.stops.length;
+        // Barrierefreiheit je Halt: Angabe der Haltestelle, sonst Fahrzeug (Niederflur)
+        const wcIcon = (s) => {
+          const v = s.wheelchair != null ? s.wheelchair : (t.wheelchair ? true : null);
+          return v == null ? '' : '<span class="wc-ic' + (v ? '' : ' no') + '" title="' + (v ? 'Barrierefreier Ein- und Ausstieg' : 'Nicht barrierefrei') + '">' + icon('wheel') + '</span>';
+        };
         let h = '<div class="trip-list" style="--c:' + c + ';--dc:' + M.stopDotColor(c) + '">';
         t.stops.forEach((s, i) => {
           const past = i < next, isNext = i === next;
@@ -614,19 +619,19 @@
           const dwell = i > 0 && i < n - 1 && ar && de && de - ar >= 60000;
           let ss, a, b;
           if (past) {
-            ss = '<span>Abgefahren</span>' + wc;
+            ss = '<span>' + (s.cancelled ? 'Halt entfiel' : 'Abgefahren') + '</span>';
             const m = Math.max(0, -M.minsUntil(tm));
             a = 'Vor ' + m + ' Min'; b = 'Um ' + M.fmtTime(tm);
           } else {
             const x = C.status({ realtime: t.realtime, delay: d, cancelled: s.cancelled });
-            const txt = s.cancelled ? 'Fällt aus' : !t.realtime || d == null ? 'Planmäßig' : d === 0 ? 'Pünktlich' : d < 0 ? 'Früher (' + d + ' Min.)' : 'Verspätet (+' + d + ' Min.)';
-            ss = '<span class="' + x.cls + '">' + txt + '</span>' + (wc ? '<span class="c-gray" style="display:inline-flex;gap:6px;align-items:center">' + wc + '</span>' : '');
+            const txt = s.cancelled ? 'Halt entfällt' : !t.realtime || d == null ? 'Planmäßig' : d === 0 ? 'Pünktlich' : d < 0 ? 'Früher (' + d + ' Min.)' : 'Verspätet (+' + d + ' Min.)';
+            ss = '<span class="' + x.cls + '">' + txt + '</span>';
             const mins = M.minsUntil(tm);
             a = '<span class="' + C.delayCls({ realtime: t.realtime, delay: d, cancelled: s.cancelled }) + '">' + (mins <= 0 ? 'Jetzt' : 'In ' + mins + ' Min') + '</span>';
             b = dwell ? 'an ' + M.fmtTime(ar) + '<br>ab ' + M.fmtTime(de) : 'Um ' + M.fmtTime(pl || tm) + (d ? '<span class="vsl"> (vsl. ' + M.fmtTime(tm) + ')</span>' : '');
           }
-          h += '<button class="trow' + (past ? ' past' : '') + (isNext ? ' next' : '') + '" data-p="' + pi + '" data-i="' + i + '">' +
-            '<div style="min-width:0"><div class="nm"><span>' + esc(s.name) + '</span>' + (!past ? C.bstg(s.platform, t.line.mode, s.plannedPlatform) : '') + '</div><div class="ss">' + ss + '</div></div>' +
+          h += '<button class="trow' + (past ? ' past' : '') + (isNext ? ' next' : '') + (s.cancelled ? ' cx' : '') + '" data-p="' + pi + '" data-i="' + i + '">' +
+            '<div style="min-width:0"><div class="nm"><span>' + esc(s.name) + '</span>' + wcIcon(s) + (!past && !s.cancelled ? C.bstg(s.platform, t.line.mode, s.plannedPlatform) : '') + '</div><div class="ss">' + ss + '</div></div>' +
             '<div class="r"><div class="a">' + a + '</div><div class="b">' + b + '</div></div>' + (past ? '' : stopInfo(s, t.line)) + '</button>';
         });
         return { html: h + '</div>', next, key: rp.state + rp.idx };
@@ -643,7 +648,7 @@
         ctx.extra(headHTML(t.line, t.headsign, !!t.realtime));
         const main = partHTML(t, 0, now);
         const at = t.stops[Math.min(main.next, t.stops.length - 1)];
-        const info = C.infoLines({ alerts: t.alerts, notes: t.notes, line: t.line, stop: at }, 0, { max: 3 });
+        const info = C.infoLines({ alerts: t.alerts, notes: t.notes, line: t.line, stop: at, headsign: t.headsign }, 0, { max: 3 });
         let h = (info ? '<div class="trip-info">' + info + '</div>' : '') + main.html;
         const parts = [t];
         if (st.next && st.next.stops && st.next.stops.length) {
@@ -674,9 +679,14 @@
         const raw = st.raw;
         if (!raw || st.nextTried === raw.tripId) return;
         st.nextTried = raw.tripId;
-        if (raw.next && raw.next.stops && raw.next.stops.length) { st.next = raw.next; st.nextInfo = raw.continues; draw(); return; }
+        if (raw.next && raw.next.stops && raw.next.stops.length && raw.continues && M.isChangeStop(raw.continues.at)) { st.next = raw.next; st.nextInfo = raw.continues; draw(); return; }
         const c = await M.Transit.continuation({ tripId: raw.tripId, src: raw.src, line: raw.line, headsign: raw.headsign });
-        if (!ctx.alive() || !c) return;
+        if (!ctx.alive()) return;
+        if (!c) {
+          // kein Linienwechsel (normale Endstelle): Weiterfahrt derselben Fahrt nicht zeigen
+          if (st.next && st.next === st.restShown) { st.next = null; st.nextInfo = null; draw(); }
+          return;
+        }
         if (c.tripId) {
           const t2 = await M.Transit.trip(c.tripId, c.src || 'motis').catch(() => null);
           if (!t2 || !ctx.alive()) return;
@@ -713,7 +723,7 @@
           const cut = cutTrip(raw);
           st.raw = raw; st.trip = cut.main; st.rest = cut.rest; st.updated = new Date(); idxs = null;
           // Weiterfahrt derselben Fahrt sofort zeigen; die Linie wird nachgeladen
-          if (cut.rest && (!st.next || st.next === st.restShown)) {
+          if (cut.rest && M.isChangeStop(cut.main.stops[cut.main.stops.length - 1].name) && (!st.next || st.next === st.restShown)) {
             st.next = cut.rest; st.restShown = cut.rest;
             if (!st.nextInfo || st.nextInfo.line === null) st.nextInfo = { line: null, at: cut.main.stops[cut.main.stops.length - 1].name, headsign: cut.rest.headsign };
           }
@@ -944,7 +954,7 @@
       function itemHTML(a, i) {
         const ls = a.lines.filter((l) => isMvb(l) === a.mvb);
         return '<div class="dep-item"><button class="alert-line" style="padding-top:14px" data-i="' + i + '">' + icon('warnFill', 'w') +
-          '<span class="tx"><b>' + C.richText(a.title) + '</b>' + (ls.length ? '<span style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px">' + M.sortLines(ls).slice(0, 12).map((l) => C.badges(l, { sm: true })).join('') + '</span>' : '') +
+          '<span class="tx"><b>' + C.richText(a.title) + '</b>' + (ls.length ? '<span style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' + C.lineGroups(ls) + '</span>' : '') +
           '<span class="c-gray" style="display:block;margin-top:6px;font-size:14px">' + esc(a.stops.slice(0, 3).join(', ')) + (a.stops.length > 3 ? ' u. a.' : '') + '</span></span><span class="chev">' + icon('down') + '</span></button></div>';
       }
       function draw() {
@@ -1176,7 +1186,7 @@
       const seg = (key, opts) => '<div class="seg" data-seg="' + key + '">' + opts.map((o) => '<button data-v="' + o[0] + '" class="' + (String(s[key]) === String(o[0]) ? 'on' : '') + '">' + o[1] + '</button>').join('') + '</div>';
       const sw = (id, on) => '<label class="sw"><input type="checkbox" data-sw="' + id + '"' + (on ? ' checked' : '') + '><span></span></label>';
       const notifState = () => (!('Notification' in window) ? 'In diesem Browser nicht verfügbar (iPhone: Muvit zum Home-Bildschirm hinzufügen)'
-        : Notification.permission === 'granted' ? 'Erlaubt – z. B. wenn ein Anschluss nicht erreicht wird'
+        : Notification.permission === 'granted' ? 'Erlaubt' + (M.Watch && M.Watch.pushReady() ? ' – auch bei geschlossener App' : ' – nur solange Muvit geöffnet ist (Push-Dienst nicht eingerichtet)')
         : Notification.permission === 'denied' ? 'Blockiert – in den Browser-Einstellungen freigeben' : 'Noch nicht erlaubt');
       ctx.body.innerHTML =
         '<div class="lbl" style="padding-top:6px">Assistance (Muvit KI)</div>' +

@@ -197,6 +197,13 @@
       return { id: m.id, name, lat: m.lat, lon: m.lon, type, area, zip: m.zip || '', modes: (m.modes || []).map(modeKey), category: m.category || '', src: 'motis' };
     }
 
+    /** Barrierefreiheit einer Haltestelle, falls die Daten sie liefern (sonst null = unbekannt) */
+    const wcOf = (p) => {
+      const v = p && (p.wheelchairBoarding != null ? p.wheelchairBoarding : p.wheelchair);
+      if (v === true || v === 'ACCESSIBLE' || v === 1) return true;
+      if (v === false || v === 'NOT_ACCESSIBLE' || v === 'INACCESSIBLE' || v === 2) return false;
+      return null;
+    };
     function evt(p, kind, leg) {
       const time = kind === 'dep' ? (p.departure || leg.startTime) : (p.arrival || leg.endTime);
       const planned = kind === 'dep' ? (p.scheduledDeparture || leg.scheduledStartTime) : (p.scheduledArrival || leg.scheduledEndTime);
@@ -205,7 +212,7 @@
         time: d(time || planned), planned: d(planned || time),
         delay: leg.realTime ? M.delayMin(time, planned) : null,
         platform: p.track || p.scheduledTrack || '', plannedPlatform: p.scheduledTrack || '',
-        cancelled: !!p.cancelled, alerts: alertList(p.alerts)
+        cancelled: !!p.cancelled, alerts: alertList(p.alerts), wheelchair: wcOf(p)
       };
     }
 
@@ -225,7 +232,7 @@
           id: p.stopId || '', name: LN(p.name), lat: p.lat, lon: p.lon,
           arr: d(p.arrival), arrPlanned: d(p.scheduledArrival), dep: d(p.departure), depPlanned: d(p.scheduledDeparture),
           platform: p.track || p.scheduledTrack || '', plannedPlatform: p.scheduledTrack || '', cancelled: !!p.cancelled,
-          alerts: alertList(p.alerts)
+          alerts: alertList(p.alerts), wheelchair: wcOf(p)
         })),
         coords: g && g.points ? M.decodePolyline(g.points, g.precision == null ? 6 : g.precision) : [],
         distance: l.distance || (g && g.length) || null,
@@ -355,17 +362,17 @@
         const stopsOf = (ls) => {
           const out = [];
           ls.forEach((leg, i) => {
-            if (i === 0) out.push({ id: leg.from.id, name: leg.from.name, lat: leg.from.lat, lon: leg.from.lon, arr: null, arrPlanned: null, dep: leg.from.time, depPlanned: leg.from.planned, platform: leg.from.platform, plannedPlatform: leg.from.plannedPlatform, cancelled: leg.from.cancelled, alerts: leg.from.alerts });
+            if (i === 0) out.push({ id: leg.from.id, name: leg.from.name, lat: leg.from.lat, lon: leg.from.lon, arr: null, arrPlanned: null, dep: leg.from.time, depPlanned: leg.from.planned, platform: leg.from.platform, plannedPlatform: leg.from.plannedPlatform, cancelled: leg.from.cancelled, alerts: leg.from.alerts, wheelchair: leg.from.wheelchair });
             leg.stops.forEach((x) => out.push(x));
-            out.push({ id: leg.to.id, name: leg.to.name, lat: leg.to.lat, lon: leg.to.lon, arr: leg.to.time, arrPlanned: leg.to.planned, dep: null, depPlanned: null, platform: leg.to.platform, plannedPlatform: leg.to.plannedPlatform, cancelled: leg.to.cancelled, alerts: leg.to.alerts });
+            out.push({ id: leg.to.id, name: leg.to.name, lat: leg.to.lat, lon: leg.to.lon, arr: leg.to.time, arrPlanned: leg.to.planned, dep: null, depPlanned: null, platform: leg.to.platform, plannedPlatform: leg.to.plannedPlatform, cancelled: leg.to.cancelled, alerts: leg.to.alerts, wheelchair: leg.to.wheelchair });
           });
           return out;
         };
         const stops = [];
         legs.forEach((leg, i) => {
-          if (i === 0) stops.push({ id: leg.from.id, name: leg.from.name, lat: leg.from.lat, lon: leg.from.lon, arr: null, arrPlanned: null, dep: leg.from.time, depPlanned: leg.from.planned, platform: leg.from.platform, plannedPlatform: leg.from.plannedPlatform, cancelled: leg.from.cancelled, alerts: leg.from.alerts });
+          if (i === 0) stops.push({ id: leg.from.id, name: leg.from.name, lat: leg.from.lat, lon: leg.from.lon, arr: null, arrPlanned: null, dep: leg.from.time, depPlanned: leg.from.planned, platform: leg.from.platform, plannedPlatform: leg.from.plannedPlatform, cancelled: leg.from.cancelled, alerts: leg.from.alerts, wheelchair: leg.from.wheelchair });
           leg.stops.forEach((s) => stops.push(s));
-          stops.push({ id: leg.to.id, name: leg.to.name, lat: leg.to.lat, lon: leg.to.lon, arr: leg.to.time, arrPlanned: leg.to.planned, dep: null, depPlanned: null, platform: leg.to.platform, plannedPlatform: leg.to.plannedPlatform, cancelled: leg.to.cancelled, alerts: leg.to.alerts });
+          stops.push({ id: leg.to.id, name: leg.to.name, lat: leg.to.lat, lon: leg.to.lon, arr: leg.to.time, arrPlanned: leg.to.planned, dep: null, depPlanned: null, platform: leg.to.platform, plannedPlatform: leg.to.plannedPlatform, cancelled: leg.to.cancelled, alerts: leg.to.alerts, wheelchair: leg.to.wheelchair });
         });
         return {
           tripId, line: L.line, headsign: L.headsign || stops[stops.length - 1].name, stops,
@@ -651,7 +658,8 @@
         // dasselbe Fahrzeug: beide Fahrten enden am selben Halt
         if (!real.dest || !sameStop(real.dest, ghost.dest)) continue;
         drop.add(ghost);
-        if (!real.comes) real.comes = { line: ghost.line, from: ghost.origin ? ghost.origin.name : '', tripId: ghost.tripId, src: ghost.src };
+        // „Kommt als …“ nur, wenn der Linienwechsel an City Carré / Hbf passiert (dort, wo die alte Linie endet)
+        if (!real.comes && M.isChangeStop(ghost.headsign)) real.comes = { line: ghost.line, from: ghost.origin ? ghost.origin.name : '', tripId: ghost.tripId, src: ghost.src };
       }
     }
     list = list.filter((x) => !drop.has(x)).sort((a, b) => (a.time || 0) - (b.time || 0));
@@ -678,9 +686,11 @@
       if (!x || !x.tripId || x.src !== 'motis' || !x.line || (x.line.mode !== 'tram' && x.line.mode !== 'bus')) return Promise.resolve(null);
       return memo('c|' + x.tripId, async () => {
         const t = await M.Transit.trip(x.tripId, 'motis');
-        if (t.continues) return t.continues;
+        if (t.continues) return M.isChangeStop(t.continues.at) ? t.continues : null;
         const h = M.headIdx(t);
         const end = t.stops[h >= 0 ? h : t.stops.length - 1];
+        // nur an echten Linienwechsel-Punkten (City Carré, Hbf) – an Endstellen fährt einfach die nächste Linie
+        if (!end || !M.isChangeStop(end.name)) return null;
         const arr = end && (end.arrPlanned || end.arr || end.depPlanned || end.dep);
         if (!arr) return null;
         const depHere = end.depPlanned || end.dep || null;   // fährt das Fahrzeug selbst weiter (gleiche Fahrt)?
@@ -697,7 +707,7 @@
     },
     /** „Kommt als …“: Beginnt die Fahrt hier, endet dann kurz vorher am selben Bahnsteig eine andere Linie? */
     comesAs(x) {
-      if (!x || !x.tripId || x.src !== 'motis' || !x.line || (x.line.mode !== 'tram' && x.line.mode !== 'bus') || !x.origin || !x.stop || !sameStop(x.origin, x.stop)) return Promise.resolve(null);
+      if (!x || !x.tripId || x.src !== 'motis' || !x.line || (x.line.mode !== 'tram' && x.line.mode !== 'bus') || !x.origin || !x.stop || !sameStop(x.origin, x.stop) || !M.isChangeStop(x.stop.name)) return Promise.resolve(null);
       return memo('k|' + x.tripId, async () => {
         const r = await M.Transit.departures(x.stop, { n: 60, arrivals: true, time: bucket(x.planned.getTime() - 14 * 60000) });
         const c = r.list.filter((a) => a.line.mode === x.line.mode && a.line.name !== x.line.name && !a.cancelled && a.dest && sameStop(a.dest, x.stop) &&
