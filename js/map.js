@@ -46,6 +46,8 @@
       style.glyphs = style.glyphs || M.CONFIG.glyphs;
       // dezenter: POI-Icons ausblenden, damit Haltestellen & Fahrzeuge im Vordergrund stehen
       style.layers = (style.layers || []).filter((l) => !/^poi/.test(l.id));
+      // dunkle Karte passend zum Sheet (#131418)
+      if (dark) style.layers.forEach((l) => { if (l.type === 'background') l.paint = Object.assign({}, l.paint, { 'background-color': '#17181C' }); });
       return style;
     } catch (e) {
       console.warn('[Muvit] Vektorstil nicht ladbar, nutze Raster-Fallback', e);

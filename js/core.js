@@ -65,7 +65,7 @@
 
   const DEFAULT_SETTINGS = {
     theme: 'system', apiKey: '', model: 'claude-opus-5-5', effort: 'low',
-    provider: 'motis', showStops: true, showVehicles: true, radius: 900
+    provider: 'motis', showStops: true, showVehicles: true, radius: 900, mapDark: true
   };
   M.settings = Object.assign({}, DEFAULT_SETTINGS, M.store.get('settings', {}));
   M.saveSettings = function (patch) {
