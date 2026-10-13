@@ -149,7 +149,7 @@
     const modesOut = (keys) => (keys && keys.length ? [].concat.apply([], keys.map((k) => MODE_OUT[k] || [])) : null);
 
     const lineOf = (o) => mkLine(o.displayName || o.routeShortName || o.tripShortName || '', modeKey(o.mode), o.routeColor, o.routeTextColor,
-      { agency: o.agencyName || '', routeId: o.routeId || '' });
+      { agency: o.agencyName || '', routeId: o.routeId || '', longName: o.routeLongName || '' });
 
     function placeParam(p) {
       if (p.src === 'motis' && p.type === 'stop' && p.id && !String(p.id).includes(',')) return p.id;
@@ -202,7 +202,8 @@
         realtime: !!l.realTime,
         cancelled: !!l.cancelled,
         alerts: alertList([].concat(l.alerts || [], l.from.alerts || [], l.to.alerts || [])),
-        interline: !!l.interlineWithPreviousLeg
+        interline: !!l.interlineWithPreviousLeg,
+        wheelchair: l.wheelchairAccessible === 'ACCESSIBLE'
       };
       if (ctx) {
         if (/^(START|Start)$/.test(leg.from.name)) leg.from.name = ctx.fromName;
@@ -239,7 +240,8 @@
         realtime: !!st.realTime, cancelled: !!(st.cancelled || st.tripCancelled),
         platform: p.track || p.scheduledTrack || '', plannedPlatform: p.scheduledTrack || '',
         stop: { id: p.stopId, name: p.name, lat: p.lat, lon: p.lon, src: 'motis', type: 'stop' },
-        alerts: alertList(p.alerts), src: 'motis'
+        alerts: alertList(p.alerts), src: 'motis',
+        wheelchair: st.wheelchairAccessible === 'ACCESSIBLE'
       };
     }
 
@@ -311,6 +313,7 @@
         });
         return {
           tripId, line: L.line, headsign: L.headsign || stops[stops.length - 1].name, stops,
+          wheelchair: legs.some((l) => l.wheelchair),
           coords: [].concat.apply([], legs.map((l) => l.coords)), realtime: legs.some((l) => l.realtime),
           alerts: alertList([].concat.apply([], legs.map((l) => l.alerts))), src: 'motis'
         };
@@ -518,11 +521,26 @@
     }
   }
 
+  /* Linien je Haltestelle merken (für Listen wie „Abfahrten / Departure“) */
+  const ORDER = { tram: 0, bus: 1, sbahn: 2, ubahn: 3, regio: 4, fern: 5, ferry: 6, other: 7 };
+  M.sortLines = (lines) => lines.slice().sort((a, b) => (ORDER[a.mode] - ORDER[b.mode]) || String(a.name).localeCompare(String(b.name), 'de', { numeric: true }));
+  function rememberLines(stop, list) {
+    if (!stop || !stop.name || !list || !list.length) return;
+    const all = M.store.get('stopLines', {});
+    const seen = new Map();
+    (all[stop.name] || []).concat(list.map((x) => x.line)).forEach((l) => { if (l && !seen.has(l.mode + '|' + l.name)) seen.set(l.mode + '|' + l.name, { name: l.name, full: l.full, mode: l.mode, color: l.color, text: l.text }); });
+    all[stop.name] = M.sortLines(Array.from(seen.values())).slice(0, 24);
+    const keys = Object.keys(all);
+    if (keys.length > 120) delete all[keys[0]];
+    M.store.set('stopLines', all);
+  }
+  M.linesForStop = (name) => (M.store.get('stopLines', {})[name] || []);
+
   M.Transit = {
     Motis, DB, lastSource: 'Transitous',
     search: (text, near) => withFallback('search', [text, near]),
     reverse: (lat, lon) => withFallback('reverse', [lat, lon]),
-    departures: (stop, o) => withFallback('departures', [stop, o]),
+    departures: (stop, o) => withFallback('departures', [stop, o]).then((r) => { rememberLines(r.stop || stop, r.list); return r; }),
     journeys: (q) => withFallback('journeys', [q]),
     trip: (tripId, src) => (src === 'db' ? DB.trip(tripId) : withFallback('trip', [tripId])),
     vehicles: (b, z) => Motis.vehicles(b, z),

@@ -197,7 +197,7 @@
         const query = { from, to, via: vias, time, arriveBy: !!inp.arrive_by };
         const list = res.list.slice(0, legsChain ? res.list.length : 4);
         if (view) view.cards({ kind: 'journeys', list, query });
-        if (list[0] && view) M.Map.drawJourney(list[0], { fit: !M.isDesktop() ? false : true });
+        if (list[0] && view) M.Map.drawJourney(list[0]);
         return {
           data: {
             start: from.name, ziel: to.name,
@@ -494,68 +494,63 @@
   function mdTrusted(src) { return md(src.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")); }
 
   /* =====================================================================
-     Ansicht: Chat
+     Ansicht: Assistance (Chat im Sheet – Karte bleibt im Hintergrund sichtbar)
      ===================================================================== */
   const SUGGEST = [
     ['route', 'Wie komme ich jetzt zum Hauptbahnhof?'],
     ['transfer', 'Von Hasselbachplatz nach Barleber See über Alter Markt mit 20 Min Aufenthalt'],
-    ['board', 'Nächste Abfahrten am Alten Markt'],
-    ['ticket', 'Was kostet eine Fahrt in Magdeburg – lohnt sich das Deutschlandticket?'],
+    ['busFront', 'Nächste Abfahrten am Alten Markt'],
+    ['ticketV', 'Was kostet eine Fahrt in Magdeburg – lohnt sich das Deutschlandticket?'],
     ['train', 'Schnellste Verbindung von Magdeburg nach Berlin morgen um 8 Uhr inkl. Preis']
   ];
 
   M.Views.assistant = {
-    title: 'Muvit KI', snap: 'full', noPad: true,
+    height: 0.95,
     render(ctx) {
       const hasKey = !!M.settings.apiKey;
       ctx.head({
-        title: 'Muvit KI', sub: hasKey ? 'Claude · Echtzeitdaten' : 'Basis-Modus · ohne API-Schlüssel',
-        actions: [{ icon: 'trash', label: 'Chat leeren', onClick: () => { A.reset(); UI.refresh(); } }, { icon: 'settings', label: 'KI-Einstellungen', onClick: () => UI.open('settings') }]
+        title: 'Assistance',
+        actions: [{ icon: 'trash', label: 'Chat leeren', onClick: () => { A.reset(); UI.refresh(); } }, { icon: 'settings', label: 'Einstellungen', onClick: () => UI.open('settings') }]
       });
+      ctx.flexBody();
       ctx.body.innerHTML =
-        '<div class="chat"><div class="chat-log" data-log></div>' +
-        '<div class="ai-mode' + (hasKey ? '' : ' local') + '"><span class="dot"></span>' + (hasKey ? esc(((M.CONFIG.aiModels.find((m) => m.id === M.settings.model) || {}).label || M.settings.model).split(' – ')[0]) : 'Basis-Modus – <button data-set>API-Schlüssel hinterlegen</button>') + '</div>' +
-        '<div class="chat-input"><button class="mic-btn" data-mic aria-label="Spracheingabe" hidden>' + icon('mic') + '</button>' +
-        '<textarea rows="1" data-in placeholder="Frag Muvit KI …" enterkeyhint="send"></textarea>' +
-        '<button class="send-btn" data-send aria-label="Senden">' + icon('send') + '</button></div></div>';
+        '<div class="chat-log" data-log></div>' +
+        '<div class="chat-mode' + (hasKey ? '' : ' local') + '"><span class="dot"></span>' + (hasKey ? 'Muvit KI · ' + esc(((M.CONFIG.aiModels.find((m) => m.id === M.settings.model) || {}).label || M.settings.model).split(' – ')[0]) : 'Basis-Modus · <button data-set>API-Schlüssel hinterlegen</button>') + '</div>' +
+        '<div class="chat-in"><button class="mic" data-mic aria-label="Spracheingabe" hidden>' + icon('mic') + '</button>' +
+        '<textarea rows="1" data-in placeholder="Frag die Assistance …" enterkeyhint="send"></textarea>' +
+        '<button class="send" data-send aria-label="Senden">' + icon('send') + '</button></div>';
       const log = M.$('[data-log]', ctx.body), input = M.$('[data-in]', ctx.body), send = M.$('[data-send]', ctx.body);
+      ctx.scroller(log);
       const setBtn = M.$('[data-set]', ctx.body);
       if (setBtn) setBtn.addEventListener('click', () => UI.open('settings'));
 
       const scroll = () => { log.scrollTop = log.scrollHeight; };
       const add = (el) => { log.appendChild(el); scroll(); return el; };
-
-      /* --- Rendering-Bausteine --- */
-      function userMsg(text) { return add(M.h('<div class="msg user fade-in">' + esc(text) + '</div>')); }
-      function botMsg(html, cls) { return add(M.h('<div class="msg bot fade-in' + (cls ? ' ' + cls : '') + '">' + html + '</div>')); }
-      function chipEl(label, state) {
-        return add(M.h('<div class="tool-chip ' + (state || '') + '">' + icon(state === 'busy' ? 'refresh' : state === 'fail' ? 'alert' : 'check') + esc(label) + '</div>'));
-      }
+      function userMsg(text) { return add(M.h('<div class="msg user">' + esc(text) + '</div>')); }
+      function botMsg(html, cls) { return add(M.h('<div class="msg bot' + (cls ? ' ' + cls : '') + '">' + html + '</div>')); }
+      function chipEl(label, state) { return add(M.h('<div class="tool ' + (state || '') + '">' + icon(state === 'busy' ? 'refresh' : state === 'fail' ? 'alert' : 'check') + esc(label) + '</div>')); }
       function cardsEl(c) {
-        const wrap = M.h('<div class="chat-cards fade-in"></div>');
+        const wrap = M.h('<div class="chat-cards"></div>');
         if (c.kind === 'journeys') {
-          wrap.innerHTML = c.list.map((j, i) => C.journeyCard(j, i, { badge: c.list.length > 1 && i === 0 ? 'Empfohlen' : '' })).join('');
-          wrap.querySelectorAll('.jc').forEach((b) => b.addEventListener('click', () => {
-            const j = c.list[+b.dataset.idx];
-            UI.open('journey', { j, query: c.query && c.query.from ? c.query : null });
-          }));
+          wrap.innerHTML = c.list.map((j, i) => C.jrow(j, i)).join('');
+          wrap.querySelectorAll('.jrow').forEach((b) => b.addEventListener('click', () => UI.open('journey', { j: c.list[+b.dataset.i], query: c.query && c.query.from ? c.query : null })));
         } else if (c.kind === 'departures') {
-          wrap.innerHTML = '<div class="section-title" style="margin-top:0">' + M.hSignSVG(18).replace('class="h-sign"', 'class="h-sign" style="width:18px;height:18px"') + ' ' + esc(c.stop.name) + '</div>' +
-            c.list.map((x, i) => C.depRow(x, i)).join('') + '<button class="btn soft sm" data-all style="margin-top:4px">Alle Abfahrten ' + icon('right') + '</button>';
-          wrap.querySelectorAll('.dep').forEach((b) => b.addEventListener('click', () => { const x = c.list[+b.dataset.idx]; UI.open('trip', { tripId: x.tripId, src: x.src, line: x.line, focusStop: c.stop.name }); }));
-          M.$('[data-all]', wrap).addEventListener('click', () => UI.open('departures', { stop: c.stop }));
+          wrap.innerHTML = '<div class="hd">' + esc(c.stop.name) + '</div>' + c.list.map((x, i) => C.depRow(x, i, { alerts: false })).join('') +
+            '<button class="pager" data-all>Alle Abfahrten</button>';
+          wrap.querySelectorAll('.dep').forEach((b) => b.addEventListener('click', () => { const x = c.list[+b.dataset.i]; UI.open('trip', { tripId: x.tripId, src: x.src, line: x.line, focusStop: c.stop.name }); }));
+          M.$('[data-all]', wrap).addEventListener('click', () => UI.open('stop', { stop: c.stop }));
         } else if (c.kind === 'nearby') {
-          wrap.innerHTML = '<div class="list">' + c.list.slice(0, 5).map((s, i) => '<button class="row" data-i="' + i + '"><span class="row-ico" style="background:transparent">' + M.hSignSVG(32) + '</span><div class="row-main"><div class="row-title">' + esc(s.name) + '</div><div class="row-sub">' + M.fmtDist(s.distance) + ' · ' + s.walk + ' Min · ' + M.compass(s.bearing) + '</div></div><div class="row-end">' + icon('right') + '</div></button>').join('') + '</div>';
-          wrap.querySelectorAll('[data-i]').forEach((b) => b.addEventListener('click', () => UI.open('departures', { stop: c.list[+b.dataset.i] })));
+          wrap.innerHTML = c.list.slice(0, 5).map((s, i) => C.stopRow(s, i, { star: false, end: M.fmtDist(s.distance) + ' · ' + M.compass(s.bearing) })).join('');
+          wrap.querySelectorAll('.stop-row').forEach((b) => b.addEventListener('click', () => UI.open('stop', { stop: c.list[+b.dataset.i] })));
         } else if (c.kind === 'trip') {
           const t = c.trip;
-          wrap.innerHTML = '<button class="row">' + C.lineBadge(t.line, { lg: true }) + '<div class="row-main"><div class="row-title">→ ' + esc(t.headsign) + '</div><div class="row-sub">' + t.stops.length + ' Halte · Linienverlauf & Live-Position</div></div><div class="row-end">' + icon('right') + '</div></button>';
-          M.$('.row', wrap).addEventListener('click', () => UI.open('trip', { tripId: t.tripId, src: t.src, line: t.line }));
+          wrap.innerHTML = C.lrow({ cls: 'lines', lead: C.badges(t.line), title: '-&gt; ' + esc(t.headsign), sub: t.stops.length + ' Halte · Fahrtverlauf & Live-Position' }, 0);
+          M.$('.lrow', wrap).addEventListener('click', () => UI.open('trip', { tripId: t.tripId, src: t.src, line: t.line }));
         } else if (c.kind === 'tariffs') {
-          wrap.innerHTML = '<button class="row"><span class="row-ico" style="background:var(--g-tix);color:#fff">' + icon('ticket') + '</span><div class="row-main"><div class="row-title">Alle Tickets & Preise</div><div class="row-sub">marego · Deutschlandticket · Stand ' + M.Tariffs.stand + '</div></div><div class="row-end">' + icon('right') + '</div></button>';
-          M.$('.row', wrap).addEventListener('click', () => UI.open('tickets'));
+          wrap.innerHTML = C.lrow({ icon: 'ticketV', title: 'Ticket kaufen', sub: 'marego · Stand ' + M.Tariffs.stand }, 0) + C.lrow({ icon: 'idCard', title: 'Abonnements', sub: 'Deutschlandticket & Abo' }, 1);
+          wrap.querySelectorAll('.lrow').forEach((b) => b.addEventListener('click', () => UI.open(b.dataset.i === '0' ? 'tickets' : 'abos')));
         } else if (c.kind === 'price') {
-          wrap.innerHTML = '<div class="price-box"><span class="pb-ico" style="background:var(--g-dep)">' + icon('euro') + '</span><div class="pb-main"><div class="pb-title">' + esc(c.from) + ' → ' + esc(c.to) + '</div><div class="pb-sub">Günstigster DB-Preis · Abfahrt ' + M.fmtTime(c.price.dep) + '</div></div><div class="pb-val">' + M.money(c.price.price.amount, c.price.price.currency) + '</div></div>';
+          wrap.innerHTML = '<div class="kv" style="border-bottom:0"><div class="k">' + esc(c.from) + ' → ' + esc(c.to) + '<small>Günstigster DB-Preis · Abfahrt ' + M.fmtTime(c.price.dep) + '</small></div><div class="v">' + M.money(c.price.price.amount, c.price.price.currency) + '</div></div>';
         }
         return add(wrap);
       }
@@ -566,39 +561,27 @@
         else if (e.type === 'tool') chipEl(e.label, e.state);
         else if (e.type === 'cards') cardsEl(e.c);
       }
-
-      /* --- View-Adapter für Assistent & Tools --- */
       const view = {
         botBubble() {
           const el = botMsg('<span class="typing"><span></span><span></span><span></span></span>');
-          return {
-            set(t) { el.innerHTML = md(t); scroll(); },
-            done(t) { A.log.push({ type: 'bot', text: t }); },
-            remove() { el.remove(); }
-          };
+          return { set(t) { el.innerHTML = md(t); scroll(); }, done(t) { A.log.push({ type: 'bot', text: t }); }, remove() { el.remove(); } };
         },
         toolChip(label) {
           const entry = { type: 'tool', label, state: 'busy' };
           A.log.push(entry);
           const el = ctx.alive() ? chipEl(label, 'busy') : null;
-          const fin = (state) => {
-            entry.state = state;
-            if (el) { el.className = 'tool-chip ' + state; el.innerHTML = icon(state === 'fail' ? 'alert' : 'check') + esc(label); }
-          };
+          const fin = (state) => { entry.state = state; if (el) { el.className = 'tool ' + state; el.innerHTML = icon(state === 'fail' ? 'alert' : 'check') + esc(label); } };
           return { done: () => fin('done'), fail: () => fin('fail') };
         },
         cards(c) { A.log.push({ type: 'cards', c }); if (ctx.alive()) cardsEl(c); },
         error(t) { A.log.push({ type: 'err', text: t }); if (ctx.alive()) botMsg(icon('alert') + ' ' + esc(t), 'err'); },
         note(t) { A.log.push({ type: 'err', text: t }); if (ctx.alive()) botMsg(esc(t), 'err'); }
       };
-
       function intro() {
-        log.innerHTML = '<div class="chat-intro fade-in"><div class="ai-orb">' + icon('sparkles') + '</div><h3>Hallo! Ich bin Muvit KI.</h3>' +
-          '<p>Frag mich nach Verbindungen – auch über Zwischenhalte mit Aufenthalt –, Abfahrten in Echtzeit, Linienverläufen oder Ticketpreisen.</p>' +
-          '<div class="suggest">' + SUGGEST.map((s, i) => '<button data-s="' + i + '">' + icon(s[0]) + esc(s[1]) + '</button>').join('') + '</div></div>';
+        log.innerHTML = '<div class="chat-hello"><h3>Hallo! Wie kann ich helfen?</h3><p>Frag nach Verbindungen – auch über Zwischenhalte mit Aufenthalt –, Abfahrten in Echtzeit, Fahrtverläufen oder Ticketpreisen. Zieh das Fenster nach unten, um die Karte zu sehen.</p>' +
+          '<div class="sugg">' + SUGGEST.map((x, i) => '<button data-s="' + i + '">' + icon(x[0]) + esc(x[1]) + '</button>').join('') + '</div></div>';
         log.querySelectorAll('[data-s]').forEach((b) => b.addEventListener('click', () => submit(SUGGEST[+b.dataset.s][1])));
       }
-
       async function submit(text) {
         text = (text || '').trim();
         if (!text || A.busy) return;
@@ -616,22 +599,14 @@
             A.log.push({ type: 'bot', text: answer, trusted: true });
             if (ctx.alive()) botMsg(mdTrusted(answer));
           }
-        } catch (e) {
-          view.error(e.message || String(e));
-        } finally {
-          A.busy = false;
-          if (ctx.alive()) { send.disabled = false; scroll(); }
-        }
+        } catch (e) { view.error(e.message || String(e)); }
+        finally { A.busy = false; if (ctx.alive()) { send.disabled = false; scroll(); } }
       }
-
       if (A.log.length) A.log.forEach(renderEntry); else intro();
       setTimeout(scroll, 50);
-
       input.addEventListener('input', () => { input.style.height = ''; input.style.height = Math.min(120, input.scrollHeight) + 'px'; });
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(input.value); } });
       send.addEventListener('click', () => submit(input.value));
-
-      // Spracheingabe (Web Speech API)
       const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
       const mic = M.$('[data-mic]', ctx.body);
       if (SR) {
@@ -648,9 +623,7 @@
         });
         ctx.cleanup(() => { if (rec) rec.abort(); });
       }
-
       if (ctx.params.prompt && !ctx.state.sent) { ctx.state.sent = true; submit(ctx.params.prompt); }
-      else if (!M.isDesktop()) setTimeout(() => { if (ctx.alive() && !A.log.length) input.focus({ preventScroll: true }); }, 400);
     }
   };
 })(window.Muvit = window.Muvit || {});

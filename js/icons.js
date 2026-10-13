@@ -58,6 +58,18 @@
     wallet: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
     target: '<circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="5.5"/><circle cx="12" cy="12" r="1.5"/>',
     dot: '<circle cx="12" cy="12" r="4" fill="currentColor"/>',
+    busFront: '<path d="M4 6 2 7M10 6h4M22 7l-2-1"/><rect x="4" y="3" width="16" height="16" rx="2"/><path d="M4 11h16M8 15h.01M16 15h.01M6 19v2M18 21v-2"/>',
+    megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+    idCard: '<path d="M16 10h2M16 14h2"/><path d="M6.17 15a3 3 0 0 1 5.66 0"/><circle cx="9" cy="11" r="2"/><rect x="2" y="5" width="20" height="14" rx="2"/>',
+    netz: '<path d="M14.1 5.9 9.9 3.8a2 2 0 0 0-1.8 0L3.6 6A1 1 0 0 0 3 7v12.4a1 1 0 0 0 1.4.9l3.7-1.9a2 2 0 0 1 1.8 0l4.2 2.1a2 2 0 0 0 1.8 0l4.5-2.2a1 1 0 0 0 .6-.9V5.1a1 1 0 0 0-1.4-.9l-3.7 1.9a2 2 0 0 1-1.8 0z"/><path d="M15 6v15M9 3v15"/>',
+    ticketV: '<path d="M9 2h6a2 2 0 0 1 2 2v4a2 2 0 0 0 0 4v8a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-8a2 2 0 0 0 0-4V4a2 2 0 0 1 2-2z"/><path d="M10 7h4"/>',
+    headset: '<path d="M3 11h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5Zm0 0a9 9 0 1 1 18 0m0 0v5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3Z"/><path d="M21 16v2a4 4 0 0 1-4 4h-5"/>',
+    wheel: '<circle cx="11" cy="3.6" r="1.6"/><path d="M11 6.5v6.5h5.2l2.6 5.2"/><path d="M11 9.5h4"/><path d="M8.2 10.3a5.6 5.6 0 1 0 7.3 7.6"/>',
+    up: '<path d="m18 15-6-6-6 6"/>',
+    hOutline: '<circle cx="12" cy="12" r="10"/><path d="M8.5 7.5v9M15.5 7.5v9M8.5 12h7"/>',
+    infoFill: '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M12 16.5v-5M12 8h.01" stroke="#131418" stroke-width="2.4"/>',
+    warnFill: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" fill="currentColor" stroke="none"/><path d="M12 9v4.5M12 17h.01" stroke="#131418" stroke-width="2.4"/>',
+    starFill: '<path d="M12 2.5l2.94 5.96 6.56.95-4.75 4.63 1.12 6.53L12 17.5l-5.87 3.07 1.12-6.53L2.5 9.41l6.56-.95z" fill="currentColor"/>',
     bolt: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>'
   };
 

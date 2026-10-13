@@ -81,21 +81,33 @@
     x.beginPath(); x.moveTo(X + R, Y); x.arcTo(X + W, Y, X + W, Y + H, R); x.arcTo(X + W, Y + H, X, Y + H, R);
     x.arcTo(X, Y + H, X, Y, R); x.arcTo(X, Y, X + W, Y, R); x.closePath();
   }
-  /** Fahrzeug-Plakette mit Liniennummer, z. B. veh|4|#E4002B|#FFFFFF|tram */
+  /** Fahrzeug-Plakette im Haltestellen-Stil: [Tram][4] bzw. (Bus)(73), z. B. veh|4|#8EC33B|#FFFFFF|tram */
   function vehicleImage(id) {
     const [, label, bg, fg, mode] = id.split('|');
-    const fs = 12.5 * DPR, padX = 6 * DPR, H = 21 * DPR, pad = 4 * DPR;
+    const B = 20 * DPR, gap = 3 * DPR, padP = 3 * DPR, pad = 4 * DPR, bw = 1.2 * DPR;
     const meas = canvas(10, 10).getContext('2d');
-    meas.font = '700 ' + fs + 'px Rubik, system-ui, sans-serif';
-    const W = Math.max(H, Math.ceil(meas.measureText(label).width) + padX * 2);
+    const numFont = '700 ' + (11 * DPR) + 'px Rubik, system-ui, sans-serif';
+    meas.font = numFont;
+    const hasMode = mode === 'tram' || mode === 'bus';
+    const lineW = Math.max(B, Math.ceil(meas.measureText(label).width) + 8 * DPR);
+    const W = (hasMode ? B + gap : 0) + lineW + padP * 2, H = B + padP * 2;
     const c = canvas(W + pad * 2, H + pad * 2), x = c.getContext('2d');
-    const R = mode === 'bus' || mode === 'sbahn' ? H / 2 : 6 * DPR;
+    // dunkle Plakette als Hintergrund (Kontrast auf heller Karte)
     x.shadowColor = 'rgba(0,0,0,.35)'; x.shadowBlur = 3 * DPR; x.shadowOffsetY = 1 * DPR;
-    roundRect(x, pad, pad, W, H, R); x.fillStyle = '#fff'; x.fill();
+    roundRect(x, pad, pad, W, H, mode === 'bus' ? H / 2 : 7 * DPR); x.fillStyle = '#131418'; x.fill();
     x.shadowColor = 'transparent';
-    roundRect(x, pad + 2 * DPR, pad + 2 * DPR, W - 4 * DPR, H - 4 * DPR, Math.max(2, R - 2 * DPR)); x.fillStyle = bg; x.fill();
-    x.fillStyle = fg; x.font = meas.font; x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.fillText(label, pad + W / 2, pad + H / 2 + 1);
+    const badge = (X, w, fill, round, text, font, color) => {
+      roundRect(x, X, pad + padP, w, B, round ? B / 2 : 4 * DPR); x.fillStyle = fill; x.fill();
+      x.lineWidth = bw; x.strokeStyle = 'rgba(255,255,255,.8)'; x.stroke();
+      x.fillStyle = color; x.font = font; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.fillText(text, X + w / 2, pad + padP + B / 2 + DPR * 0.6);
+    };
+    let X = pad + padP;
+    if (hasMode) {
+      badge(X, B, mode === 'tram' ? '#BA2619' : '#4B1C76', mode === 'bus', mode === 'tram' ? 'Tram' : 'Bus', '700 ' + (6.6 * DPR) + 'px Rubik, system-ui, sans-serif', '#FFFFFF');
+      X += B + gap;
+    }
+    badge(X, lineW, bg, mode === 'bus', label, numFont, fg);
     return { width: c.width, height: c.height, data: x.getImageData(0, 0, c.width, c.height).data };
   }
   function addImages() {
@@ -147,13 +159,13 @@
     m.addLayer({ id: 'veh-arrow', type: 'symbol', source: 'vehicles', minzoom: 12.5,
       layout: {
         'icon-image': 'veh-arrow', 'icon-size': 0.6, 'icon-rotate': ['get', 'bearing'], 'icon-rotation-alignment': 'map',
-        'icon-offset': [0, -24], 'icon-allow-overlap': true, 'icon-ignore-placement': true
+        'icon-offset': [0, -27], 'icon-allow-overlap': true, 'icon-ignore-placement': true
       },
       paint: { 'icon-color': ['get', 'color'], 'icon-opacity': ['case', ['get', 'moving'], 1, 0] } });
     m.addLayer({ id: 'vehicles', type: 'symbol', source: 'vehicles',
       layout: {
         'icon-image': ['get', 'icon'], 'icon-allow-overlap': true, 'icon-ignore-placement': true,
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.7, 13, 0.95, 16, 1.12],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.62, 13, 0.85, 16, 1],
         'symbol-sort-key': ['get', 'rank']
       } });
     refreshStopsSource();
@@ -180,7 +192,7 @@
     m.addControl(new maplibregl.AttributionControl({
       compact: true,
       customAttribution: 'Fahrplan: <a href="https://transitous.org" target="_blank" rel="noopener">Transitous</a> · <a href="https://v6.db.transport.rest" target="_blank" rel="noopener">DB</a>'
-    }), 'bottom-left');
+    }), 'top-right');
 
     m.on('style.load', () => { addLayers(); Mp.ready = true; M.emit('map:ready'); });
     m.once('load', () => {
@@ -340,8 +352,8 @@
   }
   function stopPopup(g) {
     popup(g.lat, g.lon,
-      '<div class="pop-title">' + M.hSignSVG(20).replace('class="h-sign"', 'class="h-sign" style="width:20px;height:20px;display:inline-block;vertical-align:-5px;margin-right:6px"') + M.esc(g.name) + '</div>' +
-      '<div class="pop-actions"><button class="p" data-a="dep">' + M.icon('board') + 'Abfahrten</button><button data-a="from">Von hier</button><button data-a="to">Nach hier</button></div>',
+      '<div class="pop-title">' + M.icon('hOutline') + M.esc(g.name) + '</div>' +
+      '<div class="pop-actions"><button class="p" data-a="dep">Abfahrten</button><button data-a="from">Von hier</button><button data-a="to">Nach hier</button></div>',
       (el, close) => el.addEventListener('click', (e) => {
         const a = e.target.closest('button'); if (!a) return;
         close(); M.emit('place:action', { action: a.dataset.a, place: Object.assign({ type: 'stop' }, g) });
@@ -351,7 +363,7 @@
     const place = { id: lat.toFixed(6) + ',' + lon.toFixed(6), name: 'Markierter Ort', lat, lon, type: 'coord', src: 'device' };
     popup(lat, lon,
       '<div class="pop-title" data-name>Markierter Ort</div>' +
-      '<div class="pop-actions"><button class="p" data-a="to">' + M.icon('flag') + 'Nach hier</button><button data-a="from">Von hier</button><button data-a="nearby">Haltestellen</button></div>',
+      '<div class="pop-actions"><button class="p" data-a="to">Nach hier</button><button data-a="from">Von hier</button><button data-a="nearby">Haltestellen</button></div>',
       (el, close) => {
         el.addEventListener('click', (e) => {
           const a = e.target.closest('button'); if (!a) return;
@@ -500,7 +512,7 @@
     Mp.clearRoute();
     const lines = [], pts = [], all = [];
     j.legs.forEach((l, i) => {
-      const color = l.walk ? '#7C8199' : l.line.color;
+      const color = l.walk ? '#7A7A7E' : M.routeColor(l.line);
       lines.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: l.coords }, properties: { color, walk: l.walk } });
       l.coords.forEach((c) => all.push(c));
       if (!l.walk) {
@@ -518,7 +530,7 @@
     if (!Mp.map) return;
     opts = opts || {};
     Mp.clearRoute();
-    const color = trip.line.color;
+    const color = M.routeColor(trip.line);
     const lines = [{ type: 'Feature', geometry: { type: 'LineString', coordinates: trip.coords }, properties: { color, walk: false } }];
     const pts = trip.stops.map((s, i) => pt(s, color, i === 0 || i === trip.stops.length - 1));
     Mp._route = { lines: fc(lines), pts: fc(pts) };
@@ -530,7 +542,7 @@
     if (!Mp.map) return;
     if (!pos) { if (Mp._tripVeh) { Mp._tripVeh.remove(); Mp._tripVeh = null; } return; }
     if (!Mp._tripVeh) {
-      const el = M.h('<div class="lb lg ' + line.mode + '" style="background:' + line.color + ';color:' + line.text + ';box-shadow:0 0 0 3px #fff,0 6px 16px rgba(0,0,0,.35)">' + M.icon(M.modeInfo(line.mode).icon) + M.esc(line.name) + '</div>');
+      const el = M.h('<div class="veh-marker">' + M.C.badges(line) + '</div>');
       Mp._tripVeh = new maplibregl.Marker({ element: el }).setLngLat([pos.lon, pos.lat]).addTo(Mp.map);
     } else Mp._tripVeh.setLngLat([pos.lon, pos.lat]);
   };

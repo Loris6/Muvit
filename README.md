@@ -2,22 +2,22 @@
 
 **Muvit** ist eine moderne Mobilitäts-Web-App für **Magdeburg** und ganz Deutschland, gebaut mit reinem **HTML, CSS und JavaScript** (ohne Build-Schritt). Schriftart: **Rubik**.
 
-Alle Ansichten folgen dem Stil des Startframes: Die Karte bleibt immer sichtbar. Darüber liegen Glas-Karten und ein ziehbares Bottom-Sheet (auf dem Desktop ein Seitenpanel).
+Die Karte liegt immer im Hintergrund. Alle Inhalte stecken in einem dunklen Sheet über die volle Breite (`100vw`). Das Sheet lässt sich frei hoch- und runterziehen, so bestimmst du selbst, wie viel Karte du siehst. Das funktioniert per Griff, Wischen im Inhalt oder Mausrad.
 
 ## Funktionen
 
 | Bereich | Was Muvit kann |
 |---|---|
-| **Startframe** | Von–Nach-Suche mit Tauschen, Abfahrts- oder Ankunftszeit, Zwischenhalte, zuletzt gesuchte und gemerkte Routen, sechs Schnellzugriffe über der Karte |
+| **Startframe** | „Wo geht's hin?“ mit Start/Ziel und Tauschen, sechs Schnellzugriffe (Abfahrten, Verkehrsmelder, Abonnements, Netzplan, Ticket kaufen, Assistance) und Verlauf |
 | **Karte** | MapLibre GL mit OpenFreeMap (Hell/Dunkel); Haltestellen als „H“-Schild (Zeichen 224); Standort mit Genauigkeitskreis; langes Drücken auf die Karte öffnet „Von hier / Nach hier / Haltestellen“ |
-| **Live-Karte** | Straßenbahnen, Busse und Züge in Echtzeit, flüssig entlang der Strecke animiert, mit Fahrtrichtung, Filter nach Verkehrsmittel und Pünktlichkeits-Statistik |
+| **Live-Karte** | Straßenbahnen, Busse und Züge in Echtzeit, flüssig entlang der Strecke animiert. Jedes Fahrzeug trägt sein Verkehrsmittel-Zeichen wie an der Haltestelle: „Tram“ als rotes Quadrat mit runden Ecken, „Bus“ als lila Kreis, dazu die Liniennummer |
 | **Verbindungen** | Echtzeit-Routing mit Verspätungen und Gleisen. Die Karten zeigen eine proportionale Linien-Leiste und Badges wie „Schnellste“ oder „Wenigste Umstiege“. „Früher/Später“, Filter für das Deutschlandticket, bis zu 2 Zwischenhalte mit Mindestaufenthalt |
-| **Verbindungsdetail** | Hero-Karte mit Zeitstrahl in Linienfarben, Umstiegszeiten mit Warnung bei knappen Umstiegen, Zwischenhalte, Hinweise/Störungen, Tarif-Einschätzung, DB-Live-Preis, Teilen und Merken |
-| **Abfahrten** | Echtzeit-Abfahrtstafel mit Countdown, Verspätung, Gleis/Steig, Filter nach Verkehrsmittel und Favoriten |
+| **Verbindung** | Zeitstrahl in Linienfarben mit Gleis, Verspätung, aufklappbaren Zwischenhalten, Fußwegen, Hinweisen/Störungen, Tarif-Einschätzung, DB-Live-Preis, Teilen und Merken |
+| **Abfahrten / Haltestelle** | Suche nach Haltestelle oder Linie, Tabs Verlauf/Favoriten/In der Nähe. Die Haltestellenansicht zeigt eine Echtzeit-Abfahrtstafel mit Countdown, Status (pünktlich, früher, verspätet, fällt aus), Gleis/Steig, Störungen und Filter nach Verkehrsmittel |
 | **In der Nähe** | Haltestellen im Umkreis mit selbst berechneter Entfernung (Haversine ab Geräteposition), Gehzeit und Himmelsrichtung, dazu eine Vorschau der nächsten Abfahrten |
-| **Linien & Linienverlauf** | Alle Linien der Umgebung. Der Linienverlauf zeigt jede Fahrt mit allen Halten, Echtzeit und der Live-Position im Zeitstrahl und auf der Karte |
+| **Fahrtverlauf & Netzplan** | Ein Tipp auf eine Linie öffnet den Fahrtverlauf mit allen Halten, Echtzeit und Live-Position auf der Karte. Der Netzplan listet alle Linien der Umgebung |
 | **Tickets & Preise** | marego/MVB-Tarife und Deutschlandticket (Stand 08/2026), Preisermittlung für eine Strecke, DB-Preise live |
-| **Muvit KI** | Claude (Anthropic) mit Tool-Use auf echte Daten: Routen von A nach B (auch über C mit XX Min Aufenthalt), Abfahrten, Linien, Tarife, DB-Preise und Haltestellen in der Nähe. Mit Streaming und Spracheingabe. Ohne API-Schlüssel beantwortet ein Basis-Modus typische Fragen |
+| **Assistance (Muvit KI)** | Claude (Anthropic) mit Tool-Use auf echte Daten: Routen von A nach B (auch über C mit XX Min Aufenthalt), Abfahrten, Linien, Tarife, DB-Preise und Haltestellen in der Nähe. Mit Streaming und Spracheingabe. Ohne API-Schlüssel beantwortet ein Basis-Modus typische Fragen |
 
 ## Datenquellen (echte APIs)
 
@@ -73,13 +73,13 @@ Bei Opus und Sonnet ist der serverseitige Fallback aktiviert (`fallbacks: "defau
 
 ```
 index.html              Startframe, Karte, Sheet
-css/muvit.css           Design-System (Glas-Karten, Hell/Dunkel, Mobil/Desktop)
+css/muvit.css           Design-System (dunkles Sheet, Linien-Badges, Handy/Tablet)
 js/core.js              Konfiguration, Zeit (Europe/Berlin), Geometrie, Farben, Standort, Speicher
 js/icons.js             Icon-Set & Haltestellenschild
 js/api.js               Transitous- & DB-Client, Normalisierung, Fallback
 js/tariffs.js           Tarifdaten & Tarif-Einschätzung
 js/map.js               MapLibre: H-Schilder, Live-Fahrzeuge, Routen, Linienverläufe
-js/ui.js                Sheet-Navigation, Layout, Komponenten (Verbindungskarten, Abfahrten …)
+js/ui.js                Ziehbares Sheet, Navigation, Komponenten (Badges, Abfahrten …)
 js/views.js             Alle Ansichten
 js/assistant.js         Muvit KI (Claude-Tool-Use + Basis-Modus)
 js/app.js               Start & Verdrahtung
