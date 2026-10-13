@@ -85,7 +85,7 @@
   }
   /** Fahrzeug-Plakette im Haltestellen-Stil: [Tram][4] bzw. (Bus)(73), z. B. veh|4|#8EC33B|#FFFFFF|tram */
   function vehicleImage(id) {
-    const [, label, bg, fg, mode, op] = id.split('|');
+    const [, label, bg, fg, mode, op, rt] = id.split('|');
     const B = 20 * DPR, gap = 3 * DPR, padP = 3 * DPR, pad = 4 * DPR, bw = 1.2 * DPR;
     const meas = canvas(10, 10).getContext('2d');
     const numFont = '700 ' + (11 * DPR) + 'px Rubik, system-ui, sans-serif';
@@ -95,7 +95,10 @@
     const modeW = isTrain && op === 'db' ? Math.round(B * 34 / 24) : ['sbahn', 'ubahn', 'ferry', 'regio', 'fern'].includes(mode) ? B : 0;
     const lineW = Math.max(B, Math.ceil(meas.measureText(label).width) + 8 * DPR);
     const W = (modeW ? modeW + gap : 0) + lineW + padP * 2, H = B + padP * 2;
-    const c = canvas(W + pad * 2, H + pad * 2), x = c.getContext('2d');
+    // Platz oben rechts für das Echtzeit-Zeichen
+    const ex = 6 * DPR;
+    const c = canvas(W + pad * 2 + ex, H + pad * 2 + ex), x = c.getContext('2d');
+    x.translate(0, ex);
     const top = pad + padP;
     // dunkle Plakette als Hintergrund (Kontrast auf heller Karte)
     x.shadowColor = 'rgba(0,0,0,.35)'; x.shadowBlur = 3 * DPR; x.shadowOffsetY = 1 * DPR;
@@ -128,6 +131,16 @@
     else if (mode === 'ferry') { badge(X, B, '#1C7FB0', false, '', small, ''); glyph(X, 'ferry'); }
     if (modeW) X += modeW + gap;
     badge(X, lineW, bg, mode === 'bus', label, numFont, fg);
+    // Echtzeit: schwarzer Kreis, weißer Rand, WLAN grün (Echtzeit) / rot (Fahrplan)
+    if (rt === '1' || rt === '0') {
+      const r = 7.5 * DPR, cx = pad + W - 1 * DPR, cy = pad + 1 * DPR;
+      x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.fillStyle = '#FFFFFF'; x.fill();
+      x.beginPath(); x.arc(cx, cy, r - 1.5 * DPR, 0, Math.PI * 2); x.fillStyle = '#000000'; x.fill();
+      if (window.Path2D && M.icons.wifi) {
+        const g = (r * 1.1) / 24;
+        x.save(); x.translate(cx - 12 * g, cy - 12 * g); x.scale(g, g); x.fillStyle = rt === '1' ? '#34C759' : '#FF3B30'; x.fill(new Path2D(M.icons.wifi)); x.restore();
+      }
+    }
     return { width: c.width, height: c.height, data: x.getImageData(0, 0, c.width, c.height).data };
   }
   function addImages() {
@@ -404,36 +417,22 @@
     if (!Mp.showVehicles || !Mp.map) return;
     vehTimer = setTimeout(() => fetchVehicles(force), now ? 50 : 30000);
   }
-  /** Abfragen: die ganze Stadt mit allen Verkehrsmitteln, dazu der Kartenausschnitt.
-      Ist der Ausschnitt groß (weit herausgezoomt), liefert der Server dort nur Züge. */
-  const RAIL = { sbahn: 1, regio: 1, fern: 1, ubahn: 1 };
-  function vehicleQueries(z) {
-    const v = Mp.bounds(0.12), c = Mp.center(), cb = M.cityBox(c.lat, c.lon);
-    const area = (b) => (b.maxLat - b.minLat) * (b.maxLon - b.minLon);
-    if (z < 8.5) return [{ box: v, zoom: z, railOnly: true }];
-    if (area(v) <= area(cb) * 3) {
-      return [{ box: { minLat: Math.min(v.minLat, cb.minLat), maxLat: Math.max(v.maxLat, cb.maxLat), minLon: Math.min(v.minLon, cb.minLon), maxLon: Math.max(v.maxLon, cb.maxLon) }, zoom: Math.max(14, z) }];
-    }
-    return [{ box: cb, zoom: 14 }, { box: v, zoom: z, railOnly: true }];
-  }
-  const inside = (a, b) => a.minLat >= b.minLat && a.maxLat <= b.maxLat && a.minLon >= b.minLon && a.maxLon <= b.maxLon;
+  /** Muvit zeigt nur Fahrzeuge in Magdeburg (keine Straßenbahnen in Halle, Leipzig usw.) */
+  const MD = M.CONFIG.mdBBox;
+  const inMd = (p) => p.lat >= MD.minLat && p.lat <= MD.maxLat && p.lon >= MD.minLon && p.lon <= MD.maxLon;
   async function fetchVehicles(force) {
     const m = Mp.map;
     if (!m || !Mp.showVehicles) return;
     if (document.hidden) { scheduleVehicles(); return; }
     const z = m.getZoom();
-    if (z < 5.5) { Mp.vehSegs.clear(); Mp.vehVisible = []; Mp._vehBox = null; M.emit('vehicles:update', { list: [], tooFar: true }); scheduleVehicles(); return; }
+    if (z < 8.5) { Mp.vehSegs.clear(); Mp.vehVisible = []; Mp._vehBox = null; M.emit('vehicles:update', { list: [], tooFar: true }); scheduleVehicles(); return; }
     // Kartenbewegung innerhalb des schon geladenen Gebiets: nichts neu laden
-    const zc = z < 8.5 ? 'far' : 'near';
-    if (!force && Mp._vehBox && Mp._vehZc === zc && Date.now() - lastFetch < 25000 && inside(Mp.bounds(0), Mp._vehBox)) { scheduleVehicles(); return; }
+    // Magdeburg ist immer komplett geladen – Kartenbewegungen brauchen keine neue Abfrage
+    if (!force && Mp._vehBox && Date.now() - lastFetch < 25000) { scheduleVehicles(); return; }
     const token = ++Mp.vehAbort;
-    const qs = vehicleQueries(z);
-    const box = qs.reduce((a, q) => ({ minLat: Math.min(a.minLat, q.box.minLat), maxLat: Math.max(a.maxLat, q.box.maxLat), minLon: Math.min(a.minLon, q.box.minLon), maxLon: Math.max(a.maxLon, q.box.maxLon) }), qs[0].box);
-    box.name = z < 8.5 ? '' : M.cityBox(Mp.center().lat, Mp.center().lon).name;
+    const box = Object.assign({ name: 'Magdeburg' }, MD);
     try {
-      const parts = await Promise.all(qs.map((q) => M.Transit.vehicles(q.box, q.zoom).then((list) => (q.railOnly ? list.filter((s) => RAIL[s.line.mode]) : list))));
-      const seen = new Set(), segs = [];
-      parts.forEach((list) => list.forEach((s) => { const k = s.tripId + '|' + s.dep; if (!seen.has(k)) { seen.add(k); segs.push(s); } }));
+      const segs = await M.Transit.vehicles(box, 14);
       if (token !== Mp.vehAbort) return;
       const byTrip = new Map();
       segs.forEach((s) => {
@@ -445,7 +444,7 @@
       });
       byTrip.forEach((arr) => arr.sort((a, b) => a.dep - b.dep));
       Mp.vehSegs = byTrip;
-      Mp._vehBox = box; Mp._vehZc = zc; Mp.vehArea = box.name;
+      Mp._vehBox = box; Mp.vehArea = box.name;
       lastFetch = Date.now();
       M.emit('vehicles:loaded', { count: byTrip.size });
     } catch (e) {
@@ -484,7 +483,7 @@
           pos = { lon: c[0], lat: c[1], bearing: M.bearing(p[1], p[0], c[1], c[0]) }; seg = last;
         }
       }
-      if (!pos) return;
+      if (!pos || !inMd(pos)) return;
       if (Mp.vehModes && !Mp.vehModes.has(seg.line.mode)) return;
       out.push({ tripId, pos, moving, seg });
     });
@@ -510,7 +509,7 @@
             type: 'Feature', geometry: { type: 'Point', coordinates: [v.pos.lon, v.pos.lat] },
             properties: {
               tripId: v.tripId, name: L.name, mode: L.mode, color: L.color, to: v.seg.to || '',
-              icon: 'veh|' + L.name.slice(0, 7) + '|' + L.color + '|' + L.text + '|' + L.mode + '|' + (M.isDBLine(L) ? 'db' : ''),
+              icon: 'veh|' + L.name.slice(0, 7) + '|' + L.color + '|' + L.text + '|' + L.mode + '|' + (M.isDBLine(L) ? 'db' : '') + '|' + (v.seg.realtime ? '1' : '0'),
               bearing: v.pos.bearing, moving: v.moving, rank: RANK[L.mode] || 1
             }
           };

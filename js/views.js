@@ -349,7 +349,7 @@
     const n = l.stops.length;
     return '<div class="vb-leg" data-leg="' + i + '" style="--c:' + c + ';--dc:' + M.stopDotColor(c) + '"><div class="vb-rail"></div>' +
       stopRowHTML(l.from, c, i + ':f', { realtime: l.realtime, mode: l.line.mode }) +
-      '<div class="vb-body"><div class="vb-line"><span class="bds" data-trip="' + i + '">' + C.badges(l.line) + '</span><span class="dir">nach ' + esc(l.headsign || l.to.name) + '</span></div>' +
+      '<div class="vb-body"><div class="vb-line"><span class="bds" data-trip="' + i + '">' + C.badges(l.line, { rt: !!l.realtime }) + '</span><span class="dir">nach ' + esc(l.headsign || l.to.name) + '</span></div>' +
         (l.wheelchair ? '<div class="wbox" title="Barrierefrei">' + icon('wheel') + '</div>' : '') +
         l.alerts.map((a) => '<div class="vb-alert">' + icon('warnFill') + '<div>' + C.richText(a.title, l.line, l.from.name) + (a.text ? '<small>' + esc(a.text.slice(0, 220)) + '</small>' : '') + '</div></div>').join('') +
         (l.notes || []).map((n) => '<div class="vb-alert note">' + icon('infoFill') + '<div>' + C.richText(n.text, l.line, l.from.name) + '</div></div>').join('') +
@@ -402,6 +402,7 @@
           '<div class="btn-row">' +
             '<button class="btn-o" data-a="refresh">' + icon('refresh') + 'Aktualisieren</button>' +
             '<button class="btn-o' + (favOn ? ' acc' : '') + '" data-a="fav">' + icon(favOn ? 'starFill' : 'star') + (favOn ? 'Gemerkt' : 'Merken') + '</button>' +
+            (j.arr > Date.now() && M.Watch ? '<button class="btn-o' + (M.Watch.isWatching(j) ? ' acc' : '') + '" data-a="watch">' + icon(M.Watch.isWatching(j) ? 'bellRing' : 'bell') + (M.Watch.isWatching(j) ? 'Wird überwacht' : 'Überwachen') + '</button>' : '') +
             '<button class="btn-o" data-a="share">' + icon('share') + 'Teilen</button>' +
             (est.kind === 'db' || est.kind === 'verbund' ? '<button class="btn-o" data-a="price">' + icon('euro') + 'DB-Preis</button>' : '') +
             '<button class="btn-o" data-a="ai">' + icon('headset') + 'Assistance</button>' +
@@ -431,6 +432,10 @@
         const j = st.j;
         if (a === 'refresh') refresh(true);
         else if (a === 'fav' && q) { const on = M.favs.toggleRoute(q.from, q.to); M.toast(on ? 'Route gemerkt' : 'Route entfernt'); draw(); }
+        else if (a === 'watch') {
+          if (M.Watch.isWatching(j)) { M.Watch.stop(); M.toast('Überwachung beendet'); } else await M.Watch.start(j, q);
+          draw();
+        }
         else if (a === 'share') {
           const a0 = j.legs[0].from, b0 = j.legs[j.legs.length - 1].to;
           const text = 'Muvit · ' + a0.name + ' → ' + b0.name + '\n' + M.fmtDayTime(a0.time) + ' – ' + M.fmtTime(b0.time) + ' (' + M.fmtDur(j.duration) + ')\n' +
@@ -516,7 +521,7 @@
       mit runder Spitze genau an ihrer aktuellen Position (Echtzeit). Die Endstelle hat immer den Kreis. */
   function layoutRail(listEl, rp) {
     const rows = listEl.querySelectorAll(':scope > .trow');
-    const ys = Array.from(rows, (r) => r.offsetTop + r.offsetHeight / 2);
+    const ys = Array.from(rows, (r) => r.offsetTop + Math.min(r.offsetHeight / 2, 31));
     const n = ys.length;
     if (!n) return;
     let layer = listEl.querySelector(':scope > .rl');
@@ -563,13 +568,7 @@
     }
     return { lat: s[prog.idx + 1].lat, lon: s[prog.idx + 1].lon };
   }
-  function viaText(t) {
-    const ln = t.line && t.line.longName;
-    if (ln && !/^\s*\d+\s*$/.test(ln) && ln.length < 60) return ln;
-    const s = t.stops;
-    if (s.length < 5) return '';
-    return 'ü. ' + s[Math.floor(s.length / 3)].name + ' & ' + s[Math.floor((2 * s.length) / 3)].name;
-  }
+
   M.tripProgress = tripProgress;
 
   V.trip = {
@@ -578,21 +577,41 @@
       const p = ctx.params, st = ctx.state;
       let idxs = null;
       ctx.head({ title: 'Fahrtverlauf' });
-      if (p.line) ctx.extra('<div class="trip-head">' + C.badges(p.line) + '<span class="to">-&gt; …</span></div>');
+      const headHTML = (line, to, rt) => '<div class="trip-head">' + C.badges(line, rt === undefined ? {} : { rt }) + icon('arrow', 'to-ar') + '<span class="to">' + esc(to) + '</span></div>';
+      if (p.line) ctx.extra(headHTML(p.line, '…'));
       ctx.body.innerHTML = C.skel(7);
 
-      /** Halte einer Fahrt als Zeitstrahl in Linienfarbe (weiß umrandet) */
+      /** Fahrt am angezeigten Ziel teilen (z. B. Linie 2 bis City Carré); der Rest ist die Weiterfahrt */
+      function cutTrip(t) {
+        const h = M.headIdx(t);
+        if (h < 0) return { main: t, rest: null };
+        const ci = stopCoordIdx(t);
+        const main = Object.assign({}, t, { stops: t.stops.slice(0, h + 1), coords: t.coords.slice(0, (ci[h] || 0) + 1), next: null, continues: null });
+        const rest = Object.assign({}, t, { stops: t.stops.slice(h), coords: t.coords.slice(ci[h] || 0), headsign: t.stops[t.stops.length - 1].name, next: null, continues: null });
+        return { main, rest };
+      }
+      /** Hinweise an einem Halt: Meldungen zur Haltestelle */
+      function stopInfo(s, line) {
+        let h = '';
+        (s.alerts || []).slice(0, 2).forEach((a) => { h += '<div class="ti warn">' + icon('warnFill') + '<span>' + C.richText(a.title, line, s.name) + '</span></div>'; });
+        return h ? '<div class="tinfo">' + h + '</div>' : '';
+      }
+      /** Halte einer Fahrt als Zeitstrahl in Linienfarbe */
       function partHTML(t, pi, now) {
         const rp = railProgress(t, now);
         const next = firstOpen(rp, t.stops.length);
         const c = M.routeColor(t.line);
         const wc = t.wheelchair ? ' • ' + icon('wheel') : '';
+        const n = t.stops.length;
         let h = '<div class="trip-list" style="--c:' + c + ';--dc:' + M.stopDotColor(c) + '">';
         t.stops.forEach((s, i) => {
           const past = i < next, isNext = i === next;
-          const tm = i === t.stops.length - 1 ? (s.arr || s.dep) : (s.dep || s.arr);
-          const pl = i === t.stops.length - 1 ? (s.arrPlanned || s.depPlanned) : (s.depPlanned || s.arrPlanned);
+          const tm = i === n - 1 ? (s.arr || s.dep) : (s.dep || s.arr);
+          const pl = i === n - 1 ? (s.arrPlanned || s.depPlanned) : (s.depPlanned || s.arrPlanned);
           const d = t.realtime ? M.delayMin(tm, pl) : null;
+          // Aufenthalt: Ankunft und Abfahrt getrennt zeigen (z. B. an 18:45, ab 18:48)
+          const ar = s.arr || s.arrPlanned, de = s.dep || s.depPlanned;
+          const dwell = i > 0 && i < n - 1 && ar && de && de - ar >= 60000;
           let ss, a, b;
           if (past) {
             ss = '<span>Abgefahren</span>' + wc;
@@ -603,31 +622,34 @@
             const txt = s.cancelled ? 'Fällt aus' : !t.realtime || d == null ? 'Planmäßig' : d === 0 ? 'Pünktlich' : d < 0 ? 'Früher (' + d + ' Min.)' : 'Verspätet (+' + d + ' Min.)';
             ss = '<span class="' + x.cls + '">' + txt + '</span>' + (wc ? '<span class="c-gray" style="display:inline-flex;gap:6px;align-items:center">' + wc + '</span>' : '');
             const mins = M.minsUntil(tm);
-            a = '<span class="' + (s.cancelled ? 'c-red' : mins <= 3 ? 'c-orange' : 'c-green') + '">' + (mins <= 0 ? 'Jetzt' : 'In ' + mins + ' Min') + '</span>';
-            b = 'Um ' + M.fmtTime(pl || tm) + (d ? '<span class="vsl"> (vsl. ' + M.fmtTime(tm) + ')</span>' : '');
+            a = '<span class="' + C.delayCls({ realtime: t.realtime, delay: d, cancelled: s.cancelled }) + '">' + (mins <= 0 ? 'Jetzt' : 'In ' + mins + ' Min') + '</span>';
+            b = dwell ? 'an ' + M.fmtTime(ar) + '<br>ab ' + M.fmtTime(de) : 'Um ' + M.fmtTime(pl || tm) + (d ? '<span class="vsl"> (vsl. ' + M.fmtTime(tm) + ')</span>' : '');
           }
           h += '<button class="trow' + (past ? ' past' : '') + (isNext ? ' next' : '') + '" data-p="' + pi + '" data-i="' + i + '">' +
             '<div style="min-width:0"><div class="nm"><span>' + esc(s.name) + '</span>' + (!past ? C.bstg(s.platform, t.line.mode, s.plannedPlatform) : '') + '</div><div class="ss">' + ss + '</div></div>' +
-            '<div class="r"><div class="a">' + a + '</div><div class="b">' + b + '</div></div></button>';
+            '<div class="r"><div class="a">' + a + '</div><div class="b">' + b + '</div></div>' + (past ? '' : stopInfo(s, t.line)) + '</button>';
         });
         return { html: h + '</div>', next, key: rp.state + rp.idx };
       }
+      function gapHTML(info, n) {
+        const at = (info && info.at) || n.stops[0].name;
+        const txt = info && info.line === null
+          ? 'Fährt ab ' + esc(at) + ' weiter nach ' + esc(n.headsign || '')
+          : 'Fährt ab ' + esc(at) + ' weiter als <span class="ref">' + C.badges(n.line, { sm: true }) + '</span> nach ' + esc(n.headsign || (info && info.headsign) || '');
+        return '<div class="trip-gap"><div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">' + txt + '</span><span></span></div></div>';
+      }
       function draw() {
         const t = st.trip, now = Date.now();
-        ctx.extra('<div class="trip-head">' + C.badges(t.line) + '<span class="to">-&gt; ' + esc(t.headsign) + '</span></div>' + (viaText(t) ? '<div class="trip-via">' + esc(viaText(t)) + '</div>' : ''));
+        ctx.extra(headHTML(t.line, t.headsign, !!t.realtime));
         const main = partHTML(t, 0, now);
         const at = t.stops[Math.min(main.next, t.stops.length - 1)];
         const info = C.infoLines({ alerts: t.alerts, notes: t.notes, line: t.line, stop: at }, 0, { max: 3 });
         let h = (info ? '<div class="trip-info">' + info + '</div>' : '') + main.html;
         const parts = [t];
         if (st.next && st.next.stops && st.next.stops.length) {
-          // Durchläufer: Lücke, Hinweis und der weitere Verlauf in der Farbe der neuen Linie
-          const n = st.next, ni = st.nextInfo || {};
-          parts.push(n);
-          h += '<div class="trip-gap"><div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">Fährt' + (ni.at || n.stops[0].name ? ' ab ' + esc(ni.at || n.stops[0].name) : '') + ' weiter als <span class="ref">' + C.badges(n.line, { sm: true }) + '</span> nach ' + esc(n.headsign || ni.headsign || '') + '</span><span></span></div></div>';
-          h += partHTML(n, 1, now).html;
-        } else if (t.continues) {
-          h += '<div class="trip-gap"><div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">Fährt ab ' + esc(t.continues.at) + ' weiter als <span class="ref">' + C.badges(t.continues.line, { sm: true }) + '</span> nach ' + esc(t.continues.headsign) + '</span><span></span></div></div>';
+          // Linienwechsel: Lücke, Hinweis und die nächste Fahrt in der Farbe der neuen Linie
+          parts.push(st.next);
+          h += gapHTML(st.nextInfo, st.next) + partHTML(st.next, 1, now).html;
         }
         h += '<div class="trip-foot">' + icon('live') + (t.realtime ? 'Echtzeitdaten' : 'Fahrplandaten') + ' · aktualisiert ' + M.fmtTime(st.updated || new Date()) + '</div>';
         const keep = ctx.body.scrollTop;
@@ -647,18 +669,25 @@
         }
         placeVehicle();
       }
-      /** Fährt das Fahrzeug danach als andere Linie weiter? Dann den weiteren Verlauf anhängen. */
+      /** Weiterfahrt als andere Linie ermitteln und als zweiten Abschnitt anhängen */
       async function loadNext() {
-        const t = st.trip;
-        if (!t || st.nextTried === t.tripId) return;
-        st.nextTried = t.tripId;
-        if (t.next && t.next.stops && t.next.stops.length) { st.next = t.next; st.nextInfo = t.continues; draw(); return; }
-        const c = await M.Transit.continuation({ tripId: t.tripId, src: t.src, line: t.line });
-        if (!c || !c.tripId || !ctx.alive()) return;
-        const t2 = await M.Transit.trip(c.tripId, c.src || 'motis').catch(() => null);
-        if (!t2 || !ctx.alive()) return;
-        st.next = t2; st.nextInfo = c;
-        draw();
+        const raw = st.raw;
+        if (!raw || st.nextTried === raw.tripId) return;
+        st.nextTried = raw.tripId;
+        if (raw.next && raw.next.stops && raw.next.stops.length) { st.next = raw.next; st.nextInfo = raw.continues; draw(); return; }
+        const c = await M.Transit.continuation({ tripId: raw.tripId, src: raw.src, line: raw.line, headsign: raw.headsign });
+        if (!ctx.alive() || !c) return;
+        if (c.tripId) {
+          const t2 = await M.Transit.trip(c.tripId, c.src || 'motis').catch(() => null);
+          if (!t2 || !ctx.alive()) return;
+          // nur ab dem Umstiegshalt (falls die Fahrt der neuen Linie früher beginnt)
+          const k = t2.stops.findIndex((x) => x.name === c.at);
+          st.next = k > 0 ? Object.assign({}, t2, { stops: t2.stops.slice(k) }) : t2;
+          st.nextInfo = c;
+          draw();
+        } else if (st.rest) {
+          st.nextInfo = { line: null, at: c.at, headsign: st.rest.headsign };
+        }
       }
       function layoutRails(now) {
         ctx.body.querySelectorAll('.trip-list').forEach((el, k) => { const pt = (st.parts || [])[k]; if (pt) layoutRail(el, railProgress(pt, now)); });
@@ -671,18 +700,24 @@
         if (keys.join() !== (st.keys || []).join()) draw(); else layoutRails(now);
       }
       function placeVehicle() {
-        const t = st.trip; if (!t) return;
+        const t = st.raw || st.trip; if (!t) return;
         const prog = tripProgress(t, Date.now());
         idxs = idxs || stopCoordIdx(t);
-        M.Map.setTripVehicle(prog.state === 'between' || prog.state === 'at' ? tripPos(t, idxs, prog) : null, t.line);
+        M.Map.setTripVehicle(prog.state === 'between' || prog.state === 'at' ? tripPos(t, idxs, prog) : null, (st.next && prog.state !== 'before' && st.trip && prog.idx >= st.trip.stops.length - 1) ? st.next.line : t.line);
       }
       async function load(manual) {
         try {
-          const t = await M.Transit.trip(p.tripId, p.src);
+          const raw = await M.Transit.trip(p.tripId, p.src);
           if (!ctx.alive()) return;
           const first = !st.trip;
-          st.trip = t; st.updated = new Date(); idxs = null;
-          M.Map.drawTrip(t, { fit: first || manual });
+          const cut = cutTrip(raw);
+          st.raw = raw; st.trip = cut.main; st.rest = cut.rest; st.updated = new Date(); idxs = null;
+          // Weiterfahrt derselben Fahrt sofort zeigen; die Linie wird nachgeladen
+          if (cut.rest && (!st.next || st.next === st.restShown)) {
+            st.next = cut.rest; st.restShown = cut.rest;
+            if (!st.nextInfo || st.nextInfo.line === null) st.nextInfo = { line: null, at: cut.main.stops[cut.main.stops.length - 1].name, headsign: cut.rest.headsign };
+          }
+          M.Map.drawTrip(cut.main, { fit: first || manual });
           draw();
           loadNext();
           if (manual) M.toast('Fahrtverlauf aktualisiert');
@@ -901,16 +936,26 @@
     render(ctx) {
       const st = ctx.state;
       ctx.head({ title: 'Verkehrsmelder', actions: [{ icon: 'refresh', label: 'Aktualisieren', onClick: () => { st.items = null; load(); } }] });
-      ctx.body.innerHTML = '<div class="day" style="border-top:0"><span>Aktuelle Meldungen</span><span class="upd" data-upd></span></div><div data-list>' + C.skel(5) + '</div>' +
-        '<div class="hint" style="padding-top:18px">' + icon('infoFill') + '<span>Meldungen stammen aus den Echtzeitdaten der Verkehrsunternehmen (MVB, DB u. a.) für Haltestellen rund um dich.</span></div>';
+      ctx.body.innerHTML = '<div class="day" style="border-top:0"><span>Aktuelle Meldungen der MVB</span><span class="upd" data-upd></span></div><div data-list>' + C.skel(5) + '</div>' +
+        '<div class="hint" style="padding-top:18px">' + icon('infoFill') + '<span>Die Meldungen stammen aus den Echtzeitdaten der MVB (Straßenbahn und Bus in Magdeburg). Muvit fragt dafür die wichtigsten Haltestellen im ganzen Stadtgebiet ab.</span></div>' +
+        '<div class="btn-row" style="padding-top:6px"><a class="btn-o" href="https://www.mvbnet.de/" target="_blank" rel="noopener">' + icon('external') + 'Alle Meldungen auf mvbnet.de</a></div>';
       const box = M.$('[data-list]', ctx.body);
+      const isMvb = (l) => !l || /MVB|Magdeburger Verkehrsbetriebe/i.test(l.agency || '') || (!l.agency && (l.mode === 'tram' || l.mode === 'bus'));
+      function itemHTML(a, i) {
+        const ls = a.lines.filter((l) => isMvb(l) === a.mvb);
+        return '<div class="dep-item"><button class="alert-line" style="padding-top:14px" data-i="' + i + '">' + icon('warnFill', 'w') +
+          '<span class="tx"><b>' + C.richText(a.title) + '</b>' + (ls.length ? '<span style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px">' + M.sortLines(ls).slice(0, 12).map((l) => C.badges(l, { sm: true })).join('') + '</span>' : '') +
+          '<span class="c-gray" style="display:block;margin-top:6px;font-size:14px">' + esc(a.stops.slice(0, 3).join(', ')) + (a.stops.length > 3 ? ' u. a.' : '') + '</span></span><span class="chev">' + icon('down') + '</span></button></div>';
+      }
       function draw() {
         const items = st.items || [];
-        M.$('[data-upd]', ctx.body).textContent = 'Aktualisiert: ' + M.fmtTime(st.updated || new Date());
-        if (!items.length) { box.innerHTML = C.empty('Keine Störungen gemeldet', 'Aktuell liegen für die Umgebung keine Meldungen vor.'); return; }
-        box.innerHTML = items.map((a, i) => '<div class="dep-item"><button class="alert-line" style="padding-top:14px" data-i="' + i + '">' + icon('warnFill', 'w') +
-          '<span class="tx"><b>' + esc(a.title) + '</b><span style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px">' + M.sortLines(a.lines).slice(0, 10).map((l) => C.badges(l, { sm: true })).join('') + '</span>' +
-          '<span class="c-gray" style="display:block;margin-top:6px;font-size:14px">' + esc(a.stops.slice(0, 3).join(', ')) + '</span></span><span class="chev">' + icon('down') + '</span></button></div>').join('');
+        M.$('[data-upd]', ctx.body).textContent = st.loading ? 'Wird geladen …' : 'Aktualisiert: ' + M.fmtTime(st.updated || new Date());
+        const mvb = items.filter((a) => a.mvb), other = items.filter((a) => !a.mvb);
+        if (!items.length) { box.innerHTML = st.loading ? C.skel(4) : C.empty('Keine Störungen gemeldet', 'Für Straßenbahn und Bus in Magdeburg liegen gerade keine Meldungen vor.'); return; }
+        let h = mvb.length ? mvb.map((a) => itemHTML(a, items.indexOf(a))).join('') : C.empty('Keine MVB-Meldungen', 'Für Straßenbahn und Bus liegen gerade keine Meldungen vor.');
+        if (other.length) h += '<div class="lbl" style="padding-top:18px">Weitere Meldungen (Bahn)</div>' + other.map((a) => itemHTML(a, items.indexOf(a))).join('');
+        if (st.loading) h += C.skel(2);
+        box.innerHTML = h;
         bindAll(box, '.alert-line', (b) => {
           const a = items[+b.dataset.i], n = b.nextElementSibling;
           if (n) { n.remove(); return; }
@@ -919,33 +964,44 @@
       }
       async function load() {
         box.innerHTML = C.skel(5);
+        st.loading = true; st.items = [];
+        const map = new Map();
+        const add = (a, line, s) => {
+          const k = a.title;
+          if (!map.has(k)) map.set(k, { title: a.title, text: a.text, lines: [], stops: [], mvb: isMvb(line) });
+          const it = map.get(k);
+          if (line && !it.lines.some((l) => l.name === line.name && l.mode === line.mode)) it.lines.push(line);
+          if (line && isMvb(line)) it.mvb = true;
+          if (!it.stops.includes(s.name)) it.stops.push(s.name);
+        };
         try {
-          const c = M.Geo.pos && M.dist(M.Geo.pos.lat, M.Geo.pos.lon, M.CONFIG.center.lat, M.CONFIG.center.lon) < 40000 ? M.Geo.pos : M.CONFIG.center;
-          let stops = await M.Transit.nearby(c.lat, c.lon, 2000);
-          stops = stops.sort((a, b) => (b.importance - a.importance) || (a.distance - b.distance)).slice(0, 6);
-          const map = new Map();
-          for (const s of stops) {
-            try {
-              const r = await M.Transit.departures(s, { n: 60 });
-              const add = (a, line) => {
-                const k = a.title;
-                if (!map.has(k)) map.set(k, { title: a.title, text: a.text, lines: [], stops: [] });
-                const it = map.get(k);
-                if (line && !it.lines.some((l) => l.name === line.name && l.mode === line.mode)) it.lines.push(line);
-                if (!it.stops.includes(s.name)) it.stops.push(s.name);
-              };
-              (r.alerts || []).forEach((a) => add(a, null));
-              r.list.forEach((x) => (x.alerts || []).forEach((a) => add(a, x.line)));
-            } catch (e) { /* Haltestelle überspringen */ }
-            if (!ctx.alive()) return;
-          }
-          st.items = Array.from(map.values()); st.updated = new Date();
+          const c = M.CONFIG.center;
+          const { list } = await M.Transit.cityStops(c.lat, c.lon);
+          let i = 0;
+          const worker = async () => {
+            while (i < list.length) {
+              const s = list[i++];
+              try {
+                const r = await M.Transit.departures(s, { n: 80 });
+                (r.alerts || []).forEach((a) => add(a, null, s));
+                r.list.forEach((x) => (x.alerts || []).forEach((a) => add(a, x.line, s)));
+              } catch (e) { /* Haltestelle überspringen */ }
+              if (!ctx.alive()) return;
+              st.items = Array.from(map.values()).sort((a, b) => b.lines.length - a.lines.length);
+              draw();
+            }
+          };
+          await Promise.all([worker(), worker(), worker()]);
+          if (!ctx.alive()) return;
+          st.loading = false; st.updated = new Date();
+          st.items = Array.from(map.values()).sort((a, b) => b.lines.length - a.lines.length);
           draw();
-        } catch (e) { if (ctx.alive()) { box.innerHTML = ''; box.appendChild(C.error(e, load)); } }
+        } catch (e) { st.loading = false; if (ctx.alive()) { box.innerHTML = ''; box.appendChild(C.error(e, load)); } }
       }
-      if (st.items) draw(); else load();
+      if (st.items && !st.loading && ctx.restoring) draw(); else load();
     }
   };
+
 
   /* =====================================================================
      Abonnements
@@ -1030,7 +1086,7 @@
       ctx.cleanup(() => { if (!wasOn) M.Map.setShowVehicles(false); });
       if (M.Map.map && !ctx.restoring) {
         // ganze Stadt zeigen, damit alle Fahrzeuge zu sehen sind
-        const c = M.Map.center(), b = M.cityBox(c.lat, c.lon);
+        const b = M.CONFIG.mdBBox;
         M.Map.fitCoords([[b.minLon, b.minLat], [b.maxLon, b.maxLat]], { maxZoom: 13 });
       }
       ctx.body.innerHTML =
@@ -1079,8 +1135,8 @@
       }
       async function load() {
         box.innerHTML = C.skel(6);
-        const c = M.Map.center();
-        st.area = M.cityBox(c.lat, c.lon).name; st.loading = true; st.lines = null;
+        const c = M.CONFIG.center;   // Muvit ist eine Magdeburg-App
+        st.area = 'Magdeburg'; st.loading = true; st.lines = null;
         try {
           const res = await M.Transit.linesCity(c.lat, c.lon, (part) => { if (ctx.alive()) { st.lines = part; draw(); } });
           st.lines = res; st.loading = false;
@@ -1119,6 +1175,9 @@
       ctx.head({ title: 'Einstellungen' });
       const seg = (key, opts) => '<div class="seg" data-seg="' + key + '">' + opts.map((o) => '<button data-v="' + o[0] + '" class="' + (String(s[key]) === String(o[0]) ? 'on' : '') + '">' + o[1] + '</button>').join('') + '</div>';
       const sw = (id, on) => '<label class="sw"><input type="checkbox" data-sw="' + id + '"' + (on ? ' checked' : '') + '><span></span></label>';
+      const notifState = () => (!('Notification' in window) ? 'In diesem Browser nicht verfügbar (iPhone: Muvit zum Home-Bildschirm hinzufügen)'
+        : Notification.permission === 'granted' ? 'Erlaubt – z. B. wenn ein Anschluss nicht erreicht wird'
+        : Notification.permission === 'denied' ? 'Blockiert – in den Browser-Einstellungen freigeben' : 'Noch nicht erlaubt');
       ctx.body.innerHTML =
         '<div class="lbl" style="padding-top:6px">Assistance (Muvit KI)</div>' +
         '<div class="hint" style="padding-bottom:14px">' + icon('infoFill') + '<span>Die Assistance nutzt Claude von Anthropic. Dein API-Schlüssel bleibt nur in diesem Browser und wird direkt an api.anthropic.com gesendet. Ohne Schlüssel beantwortet Muvit typische Fragen im Basis-Modus.</span></div>' +
@@ -1130,6 +1189,7 @@
         '<div class="kv"><div class="k">Live-Fahrzeuge</div>' + sw('veh', s.showVehicles !== false) + '</div>' +
         '<div class="kv"><div class="k">Haltestellen („H“)</div>' + sw('stops', s.showStops !== false) + '</div>' +
         '<div class="kv"><div class="k">Dunkle Karte</div>' + sw('dark', !!s.mapDark) + '</div>' +
+        '<div class="kv"><div class="k">Mitteilungen<small data-npst>' + notifState() + '</small></div><button class="btn-o" data-notif style="height:36px">' + icon('bell') + 'Erlauben</button></div>' +
         '<div class="lbl">Fahrplandaten</div>' + seg('provider', [['motis', 'Transitous (Echtzeit)'], ['db', 'Deutsche Bahn']]) +
         '<div class="lbl" style="padding-top:4px">Umkreis „In der Nähe“</div>' + seg('radius', [[500, '500 m'], [900, '900 m'], [1500, '1,5 km']]) +
         '<div class="lbl">Privatsphäre</div>' +
@@ -1157,6 +1217,11 @@
         try { await M.Assistant.testKey(); M.toast('Verbindung zu Claude funktioniert'); }
         catch (err) { M.toast(err.message || 'Test fehlgeschlagen', { type: 'err', ms: 6000 }); }
         finally { b.disabled = false; }
+      });
+      bindAll(ctx.body, '[data-notif]', async () => {
+        if (!('Notification' in window)) { M.toast('Mitteilungen sind hier nicht verfügbar. Auf dem iPhone Muvit zuerst zum Home-Bildschirm hinzufügen.', { type: 'err', ms: 6000 }); return; }
+        try { await Notification.requestPermission(); } catch (e) { /* ignore */ }
+        const el = M.$('[data-npst]', ctx.body); if (el) el.textContent = notifState();
       });
       bindAll(ctx.body, '[data-wipe]', () => { ['recentPlaces', 'recentRoutes', 'recentStops', 'stopLines'].forEach((k) => M.store.del(k)); M.toast('Verlauf gelöscht'); });
       bindAll(ctx.body, '[data-wipefav]', () => { ['favStops', 'favRoutes'].forEach((k) => M.store.del(k)); M.toast('Favoriten gelöscht'); });

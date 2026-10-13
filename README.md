@@ -21,6 +21,12 @@ Die Karte liegt immer im Hintergrund. Alle Inhalte stecken in einem dunklen Shee
 
 Muvit ist eine App für Magdeburg: Haltestellen und Orte erscheinen ohne den Zusatz „Magdeburg“, also „Sudenburg“ statt „Magdeburg, Sudenburg“. Orte außerhalb behalten ihren Ortsnamen, Züge in ganz Deutschland werden weiterhin angezeigt.
 
+### Verbindung überwachen
+
+In der Verbindung startet „Überwachen“ die Überwachung. Muvit prüft dann jede Minute die Echtzeit aller Teilstrecken. Wird ein Umstieg zu knapp oder fällt eine Fahrt aus, kommt eine Mitteilung mit den schnellsten Alternativen ab dem Umstiegshalt. Oben erscheint eine Leiste mit „Alternativen“.
+
+Auf dem iPhone gibt es Mitteilungen nur, wenn Muvit auf dem Home-Bildschirm liegt (ab iOS 16.4). Außerdem prüft Muvit nur, solange die App läuft. Für Mitteilungen bei geschlossener App bräuchte es einen eigenen Push-Server.
+
 ### Durchläufer („fährt weiter als …“)
 
 Die Fahrplandaten enthalten nicht direkt, ob ein Fahrzeug als andere Linie weiterfährt. Muvit erkennt das so: Endet eine Fahrt, sucht Muvit an der Endhaltestelle eine andere Linie desselben Verkehrsmittels, die dort beginnt und kurz danach (bis 12 Minuten) am selben Bahnsteig abfährt. Für „kommt als …“ gilt das umgekehrt. Hinweise aus den Störungsmeldungen werden zusätzlich ausgewertet.
@@ -89,6 +95,8 @@ js/map.js               MapLibre: H-Schilder, Live-Fahrzeuge, Routen, Linienverl
 js/ui.js                Ziehbares Sheet, Navigation, Komponenten (Badges, Abfahrten …)
 js/views.js             Alle Ansichten
 js/assistant.js         Muvit KI (Claude-Tool-Use + Basis-Modus)
+js/watch.js             Verbindung überwachen, Mitteilungen bei verpasstem Anschluss
+sw.js                   Service Worker für Mitteilungen
 js/app.js               Start & Verdrahtung
 js/vendor/              Anthropic-SDK als Browser-Bundle (MIT, Safari-kompatibel gebaut)
 assets/                 App-Icon (SVG) und PNG-Icons für iOS/Android

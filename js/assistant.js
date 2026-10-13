@@ -544,7 +544,7 @@
           wrap.querySelectorAll('.stop-row').forEach((b) => b.addEventListener('click', () => UI.open('stop', { stop: c.list[+b.dataset.i] })));
         } else if (c.kind === 'trip') {
           const t = c.trip;
-          wrap.innerHTML = C.lrow({ cls: 'lines', lead: C.badges(t.line), title: '-&gt; ' + esc(t.headsign), sub: t.stops.length + ' Halte · Fahrtverlauf & Live-Position' }, 0);
+          wrap.innerHTML = C.lrow({ cls: 'lines', lead: C.badges(t.line), title: M.icon('arrow', 'to-ar') + esc(t.headsign), sub: t.stops.length + ' Halte · Fahrtverlauf & Live-Position' }, 0);
           M.$('.lrow', wrap).addEventListener('click', () => UI.open('trip', { tripId: t.tripId, src: t.src, line: t.line }));
         } else if (c.kind === 'tariffs') {
           wrap.innerHTML = C.lrow({ icon: 'ticketV', title: 'Ticket kaufen', sub: 'marego · Stand ' + M.Tariffs.stand }, 0) + C.lrow({ icon: 'idCard', title: 'Abonnements', sub: 'Deutschlandticket & Abo' }, 1);

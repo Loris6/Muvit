@@ -44,7 +44,18 @@
   C.badges = function (line, o) {
     if (!line) return '';
     o = o || {};
-    return '<span class="bds">' + C.modeBadge(line.mode, o, line) + C.lineBadge(line, o) + '</span>';
+    const rt = o.rt === undefined ? '' : C.rtBadge(o.rt);
+    return '<span class="bds' + (rt ? ' has-rt' : '') + '">' + C.modeBadge(line.mode, o, line) + C.lineBadge(line, o) + rt + '</span>';
+  };
+  /** Echtzeit-Zeichen: schwarzer Kreis mit weißem Rand, WLAN grün (Echtzeit) bzw. rot (nur Fahrplan) */
+  C.rtBadge = (on) => '<span class="rtb ' + (on ? 'ok' : 'no') + '" title="' + (on ? 'Echtzeitdaten' : 'Keine Echtzeitdaten – Fahrplan') + '">' + icon('wifi') + '</span>';
+  /** Farbe für Minuten/Countdown: grün pünktlich, blau zu früh, orange leicht verspätet, rot verspätet */
+  C.delayCls = function (x) {
+    if (x.cancelled) return 'c-red';
+    if (!x.realtime || x.delay == null) return '';
+    if (x.delay < 0) return 'c-blue';
+    if (x.delay === 0) return 'c-green';
+    return x.delay >= 5 ? 'c-red' : 'c-orange';
   };
   /** Linien einer Haltestelle (Bild „Abfahrten / Departure“): Linien | weitere Verkehrsmittel */
   C.stopLines = function (lines) {
@@ -124,7 +135,8 @@
       .forEach((n) => { h += note(C.richText(n.text, x.line, at)); });
     // Durchläufer: „Kommt als [Tram][2] aus …“ / „Fährt weiter als [Tram][13] nach …“
     if (x.comes) h += note('Kommt als <span class="ref">' + C.badges(x.comes.line, { sm: true }) + '</span>' + (x.comes.from ? ' aus ' + esc(x.comes.from) : ''));
-    if (x.cont) h += note('Fährt weiter als <span class="ref">' + C.badges(x.cont.line, { sm: true }) + '</span>' + (x.cont.headsign ? ' nach ' + esc(x.cont.headsign) : ''));
+    if (x.cont) h += note(x.cont.line ? 'Fährt weiter als <span class="ref">' + C.badges(x.cont.line, { sm: true }) + '</span>' + (x.cont.headsign ? ' nach ' + esc(x.cont.headsign) : '')
+      : 'Fährt' + (x.cont.at ? ' ab ' + esc(x.cont.at) : '') + ' weiter nach ' + esc(x.cont.headsign));
     return h;
   };
 
@@ -137,9 +149,9 @@
     if (x.platform) sub.push(C.platformText(x.platform, x.line.mode, x.plannedPlatform));
     if (o.stopName && x.stop) sub.push('<span class="pf">' + esc(x.stop.name) + '</span>');
     let h = '<div class="dep-item' + (x.cancelled ? ' cancel' : '') + '"><button class="dep" data-i="' + i + '">' +
-      C.badges(x.line, { upper: true }) +
+      C.badges(x.line, { upper: true, rt: !!x.realtime }) +
       '<div style="min-width:0"><div class="dep-name">' + esc(x.headsign || '–') + '</div><div class="dep-sub">' + sub.join('<i class="sep"> • </i>') + '</div></div>' +
-      '<div class="dep-r"><div class="cd ' + (x.cancelled ? 'c-red' : st.cls === 'c-gray' ? '' : st.cls) + '">' + C.countdown(x.time, true) + '</div><div class="clk">' + clk + '</div></div>' +
+      '<div class="dep-r"><div class="cd ' + C.delayCls(x) + '">' + C.countdown(x.time, true) + '</div><div class="clk">' + clk + '</div></div>' +
       '<span class="chev">' + icon('right') + '</span></button>';
     if (o.alerts !== false) h += C.infoLines(x, i);
     return h + '</div>';
@@ -317,9 +329,13 @@
     const acts = o.actions || [];
     UI.head.innerHTML = (root ? '' : '<button class="back" data-back aria-label="Zurück">' + icon('back') + '</button>') +
       '<h1' + (o.small ? ' class="sm"' : '') + '>' + esc(o.title || '') + '</h1>' +
-      '<div class="acts">' + acts.map((a, i) => '<button class="act' + (a.on ? ' on' : '') + '" data-act="' + i + '" aria-label="' + esc(a.label) + '" title="' + esc(a.label) + '">' + icon(a.icon) + '</button>').join('') + '</div>';
+      '<div class="acts">' + acts.map((a, i) => '<button class="act' + (a.on ? ' on' : '') + '" data-act="' + i + '" aria-label="' + esc(a.label) + '" title="' + esc(a.label) + '">' + icon(a.icon) + '</button>').join('') +
+      // X: direkt zurück zum Start („Wo geht's hin?“)
+      (root ? '' : '<button class="act home" data-home aria-label="Zum Start" title="Zum Start">' + icon('close') + '</button>') + '</div>';
     const b = UI.head.querySelector('[data-back]');
     if (b) b.addEventListener('click', () => UI.back());
+    const x = UI.head.querySelector('[data-home]');
+    if (x) x.addEventListener('click', (e) => { e.stopPropagation(); UI.home(); });
     UI.head.querySelectorAll('[data-act]').forEach((el) => el.addEventListener('click', (e) => { e.stopPropagation(); acts[+el.dataset.act].onClick(el); }));
   }
 

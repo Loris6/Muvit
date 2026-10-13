@@ -69,9 +69,16 @@
       M.Geo.start();
       UI.layout();
     });
+    // Überwachte Verbindung & Mitteilungen
+    if (M.Watch) M.Watch.init();
+    if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+      navigator.serviceWorker.register('sw.js').catch(() => { /* ohne Service Worker nur Hinweise in der App */ });
+      navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.type === 'open' && /alternativen/.test(e.data.url || '')) M.Watch.openAlternatives(); });
+    }
     try {
       const v = new URLSearchParams(location.search).get('view');
-      if (v && M.Views[v] && v !== 'home') setTimeout(() => UI.open(v, {}), 500);
+      if (v === 'alternativen') setTimeout(() => M.Watch.openAlternatives(), 900);
+      else if (v && M.Views[v] && v !== 'home') setTimeout(() => UI.open(v, {}), 500);
     } catch (e) { /* ignore */ }
   }
 
