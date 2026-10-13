@@ -223,14 +223,21 @@ svg.i { width: 20px; height: 20px; flex: none; display: block; }
 .trow { position: relative; display: grid; grid-template-columns: 1fr auto; column-gap: 12px; align-items: center; min-height: 60px; padding: 9px var(--pad) 9px 64px; width: 100%; text-align: left; }
 .trow::after { content: ""; position: absolute; left: 50px; right: 0; bottom: 0; height: 1px; background: var(--sep-soft); }
 .trow:last-of-type::after { display: none; }
-/* Verlaufslinie: durchgehend in Linienfarbe, weiß umrandet (auch nach dem Verlassen einer Haltestelle) */
-.trow .rail { position: absolute; left: 19px; width: 12px; background: #fff; }
-.trow .rail::after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; right: 2px; background: var(--c); }
-.trow .rail.up { top: 0; height: 50%; }
-.trow .rail.dn { top: 50%; bottom: 0; }
-.trow .dot { position: absolute; left: 22px; top: 50%; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%; background: var(--dc, #fff); z-index: 1; }
-/* große Kreise (Start, nächster Halt, Ziel) ohne weißen Rand – die Linie geht direkt aus ihnen heraus */
-.trow .dot.big { left: 14px; width: 22px; height: 22px; margin-top: -11px; border: 4px solid var(--c); }
+/* Verlaufslinie: gefahren = dünn und grau; Rest in Linienfarbe mit weißem Rand. Der große Kreis
+   (aktueller Halt, Endstelle) hat denselben weißen Rand und dieselbe Farbe und geht nahtlos in die Linie über. */
+.trip-list { position: relative; }
+.rl { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+.rl > * { position: absolute; display: block; }
+.rl-gray { left: 23px; width: 4px; border-radius: 2px; background: #A0A1A6; z-index: 1; }
+.rl-out { left: 19px; width: 12px; background: #fff; z-index: 2; }
+.rl-out.cap { border-radius: 6px 6px 0 0; }
+.rl-in { left: 21px; width: 8px; background: var(--c); z-index: 3; }
+.rl-in.cap { border-radius: 4px 4px 0 0; }
+.rl-dot { left: 25px; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%; background: var(--dc, #fff); z-index: 4; }
+.rl-dot.past { width: 12px; height: 12px; margin: -6px 0 0 -6px; background: #5F6065; border: 2px solid #A0A1A6; z-index: 2; }
+.rl-node { left: 25px; width: 0; height: 0; }
+.rl-node::before { content: ""; box-sizing: border-box; position: absolute; left: -10px; top: -10px; width: 20px; height: 20px; border-radius: 50%; background: #fff; z-index: 2; }
+.rl-node::after { content: ""; box-sizing: border-box; position: absolute; left: -8px; top: -8px; width: 16px; height: 16px; border-radius: 50%; background: var(--dc, #fff); border: 3.5px solid var(--c); z-index: 3; }
 .trip-gap { padding: 14px var(--pad) 4px; }
 .trip-gap .alert-line { padding-bottom: 6px; }
 .trow .nm { font-size: 17px; font-weight: 500; display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -245,7 +252,6 @@ svg.i { width: 20px; height: 20px; flex: none; display: block; }
 .trow .r .b { font-size: 15px; color: #C9C9CC; margin-top: 5px; }
 .trow.past .r .a { font-weight: 400; color: var(--past); }
 .trow.past .r .b { color: var(--past); }
-.trip-list { position: relative; }
 .trip-list .veh { position: absolute; left: 13px; z-index: 2; width: 24px; height: 24px; margin-top: -12px; border-radius: 50%; background: var(--c); border: 2px solid #fff; display: grid; place-items: center; color: #fff; transition: top 1s linear; }
 .trip-list .veh svg.i { width: 13px; height: 13px; }
 .trip-foot { color: var(--gray); font-size: 14px; padding: 16px var(--pad) 0; display: flex; gap: 8px; align-items: center; }
