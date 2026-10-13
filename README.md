@@ -2,28 +2,29 @@
 
 **Muvit** ist eine moderne Mobilitäts-Web-App für **Magdeburg** und ganz Deutschland, gebaut mit reinem **HTML, CSS und JavaScript** (ohne Build-Schritt). Schriftart: **Rubik**.
 
-Alle Ansichten folgen dem Stil des Startframes: Die Karte bleibt immer sichtbar. Darüber liegen Glas-Karten und ein ziehbares Bottom-Sheet (auf dem Desktop ein Seitenpanel).
+Die Karte liegt immer im Hintergrund. Alle Inhalte stecken in einem dunklen Sheet über die volle Breite (`100vw`). Das Sheet lässt sich frei hoch- und runterziehen, so bestimmst du selbst, wie viel Karte du siehst. Das funktioniert per Griff, Wischen im Inhalt oder Mausrad.
 
 ## Funktionen
 
 | Bereich | Was Muvit kann |
 |---|---|
-| **Startframe** | Von–Nach-Suche mit Tauschen, Abfahrts- oder Ankunftszeit, Zwischenhalte, zuletzt gesuchte und gemerkte Routen, sechs Schnellzugriffe über der Karte |
-| **Karte** | MapLibre GL mit OpenFreeMap (Hell/Dunkel); Haltestellen als „H“-Schild (Zeichen 224); Standort mit Genauigkeitskreis; langes Drücken auf die Karte öffnet „Von hier / Nach hier / Haltestellen“ |
-| **Live-Karte** | Straßenbahnen, Busse und Züge in Echtzeit, flüssig entlang der Strecke animiert, mit Fahrtrichtung, Filter nach Verkehrsmittel und Pünktlichkeits-Statistik |
+| **Startframe** | „Wo geht's hin?“ mit Start/Ziel und Tauschen, sechs Schnellzugriffe (Abfahrten, Verkehrsmelder, Abonnements, Netzplan, Ticket kaufen, Assistance) und Verlauf |
+| **Karte** | MapLibre GL mit OpenFreeMap (Hell/Dunkel); Haltestellen als „H“-Schild (Zeichen 224). Ein Tipp auf eine Haltestelle öffnet direkt ihre Abfahrten. Standort mit Genauigkeitskreis; langes Drücken auf die Karte öffnet „Von hier / Nach hier / Haltestellen“ |
+| **Live-Karte** | Alle Straßenbahnen, Busse und Züge der ganzen Stadt in Echtzeit, flüssig entlang der Strecke animiert. Jedes Fahrzeug trägt sein Verkehrsmittel-Zeichen wie an der Haltestelle: „Tram“ als rotes Quadrat, „Bus“ als lila Kreis (beide 1:1), S-Bahn-Logo, DB-Logo für DB-Züge, sonst Zug-Piktogramm, dazu die Liniennummer |
 | **Verbindungen** | Echtzeit-Routing mit Verspätungen und Gleisen. Die Karten zeigen eine proportionale Linien-Leiste und Badges wie „Schnellste“ oder „Wenigste Umstiege“. „Früher/Später“, Filter für das Deutschlandticket, bis zu 2 Zwischenhalte mit Mindestaufenthalt |
-| **Verbindungsdetail** | Hero-Karte mit Zeitstrahl in Linienfarben, Umstiegszeiten mit Warnung bei knappen Umstiegen, Zwischenhalte, Hinweise/Störungen, Tarif-Einschätzung, DB-Live-Preis, Teilen und Merken |
-| **Abfahrten** | Echtzeit-Abfahrtstafel mit Countdown, Verspätung, Gleis/Steig, Filter nach Verkehrsmittel und Favoriten |
+| **Verbindung** | Zeitstrahl in Linienfarben mit Gleis, Verspätung, aufklappbaren Zwischenhalten, Fußwegen, Hinweisen/Störungen, Tarif-Einschätzung, DB-Live-Preis, Teilen und Merken |
+| **Abfahrten / Haltestelle** | Suche nach Haltestelle oder Linie, Tabs Verlauf/Favoriten/In der Nähe. Die Haltestellenansicht zeigt eine Echtzeit-Abfahrtstafel mit Countdown, Status (pünktlich, früher, verspätet, fällt aus), Bahnsteig (Bstg.) bei Tram und Bus bzw. Gleis bei Zügen (Gleiswechsel rot hinterlegt) und Filter nach Verkehrsmittel. Unter jeder Linie stehen bei Bedarf Hinweise wie „Baustellenbedingte Umleitung“ oder „fährt weiter als [Tram][3]“ |
 | **In der Nähe** | Haltestellen im Umkreis mit selbst berechneter Entfernung (Haversine ab Geräteposition), Gehzeit und Himmelsrichtung, dazu eine Vorschau der nächsten Abfahrten |
-| **Linien & Linienverlauf** | Alle Linien der Umgebung. Der Linienverlauf zeigt jede Fahrt mit allen Halten, Echtzeit und der Live-Position im Zeitstrahl und auf der Karte |
+| **Fahrtverlauf & Netzplan** | Ein Tipp auf eine Linie öffnet den Fahrtverlauf mit allen Halten, Echtzeit und Live-Position auf der Karte. Die Linie ist durchgehend in Linienfarbe mit Haltestellenpunkten (weiß, bei hellen Linien wie Tram 3 schwarz). Der Netzplan zeigt die ganze Stadt und listet alle Linien der Stadt |
 | **Tickets & Preise** | marego/MVB-Tarife und Deutschlandticket (Stand 08/2026), Preisermittlung für eine Strecke, DB-Preise live |
-| **Muvit KI** | Claude (Anthropic) mit Tool-Use auf echte Daten: Routen von A nach B (auch über C mit XX Min Aufenthalt), Abfahrten, Linien, Tarife, DB-Preise und Haltestellen in der Nähe. Mit Streaming und Spracheingabe. Ohne API-Schlüssel beantwortet ein Basis-Modus typische Fragen |
+| **Assistance (Muvit KI)** | Claude (Anthropic) mit Tool-Use auf echte Daten: Routen von A nach B (auch über C mit XX Min Aufenthalt), Abfahrten, Linien, Tarife, DB-Preise und Haltestellen in der Nähe. Mit Streaming und Spracheingabe. Ohne API-Schlüssel beantwortet ein Basis-Modus typische Fragen |
 
 ## Datenquellen (echte APIs)
 
 - **[Transitous](https://transitous.org)** (MOTIS 2, `api.transitous.org`): Fahrplan und Echtzeit für ganz Europa, darunter die MVB-Straßenbahnen und -Busse in Magdeburg (DELFI) sowie Regional- und Fernverkehr. Muvit nutzt `geocode`, `plan`, `stoptimes`, `trip`, `map/stops` und `map/trips` (Live-Fahrzeuge).
 - **[db.transport.rest](https://v6.db.transport.rest)** (Deutsche Bahn): automatischer Fallback und Quelle für DB-Ticketpreise. In den Einstellungen lässt sich die DB auch als primäre Quelle wählen.
 - **Karte:** © [OpenStreetMap](https://www.openstreetmap.org/copyright)-Mitwirkende, Vektor-Kacheln von [OpenFreeMap](https://openfreemap.org), CARTO-Raster als Fallback.
+- **Icons:** [Uicons by Flaticon](https://www.flaticon.com/uicons) (Regular, Bold und Solid Rounded aus `@flaticon/flaticon-uicons` 3.3.1). Die Glyphen sind als SVG-Pfade in `js/icons.js` eingebettet. Die Flaticon-Lizenz verlangt eine Namensnennung, sie steht in den Einstellungen unter „Über Muvit“.
 - **Tarife:** Werte in `js/tariffs.js` (marego-Tarifreform 01.08.2026, Deutschlandticket 63 €/Monat seit 01.01.2026). Alle Angaben ohne Gewähr. Fehlende Preise werden nicht geschätzt, Muvit verlinkt dann auf die offizielle Tarifauskunft.
 
 Die Karte braucht keinen API-Schlüssel.
@@ -73,18 +74,18 @@ Bei Opus und Sonnet ist der serverseitige Fallback aktiviert (`fallbacks: "defau
 
 ```
 index.html              Startframe, Karte, Sheet
-css/muvit.css           Design-System (Glas-Karten, Hell/Dunkel, Mobil/Desktop)
+css/muvit.css           Design-System (dunkles Sheet, Linien-Badges, Handy/Tablet)
 js/core.js              Konfiguration, Zeit (Europe/Berlin), Geometrie, Farben, Standort, Speicher
-js/icons.js             Icon-Set & Haltestellenschild
+js/icons.js             Flaticon-Uicons (eingebettet) & Haltestellenschild
 js/api.js               Transitous- & DB-Client, Normalisierung, Fallback
 js/tariffs.js           Tarifdaten & Tarif-Einschätzung
 js/map.js               MapLibre: H-Schilder, Live-Fahrzeuge, Routen, Linienverläufe
-js/ui.js                Sheet-Navigation, Layout, Komponenten (Verbindungskarten, Abfahrten …)
+js/ui.js                Ziehbares Sheet, Navigation, Komponenten (Badges, Abfahrten …)
 js/views.js             Alle Ansichten
 js/assistant.js         Muvit KI (Claude-Tool-Use + Basis-Modus)
 js/app.js               Start & Verdrahtung
 js/vendor/              Anthropic-SDK als Browser-Bundle (MIT, Safari-kompatibel gebaut)
-assets/                 Logo (SVG) und App-Icons (PNG für iOS/Android)
+assets/                 App-Icon (SVG) und PNG-Icons für iOS/Android
 ```
 
 ## Hinweise

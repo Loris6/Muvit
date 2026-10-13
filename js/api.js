@@ -101,6 +101,26 @@
     return out.slice(0, 4);
   }
 
+  /** Hinweise aufteilen: Durchläufer („fährt weiter als …“, „kommt als …“) als Info, Baustellen/Umleitungen als Warnung */
+  const THRU_RE = /(weiter\s+als|kommt\s+als|kommend\s+als|als\s+(?:Linie|Tram|Bus|STR)\s*\w+\s+weiter|Linienwechsel)/i;
+  const WORK_RE = /(Umleitung|umgeleitet|Ersatzverkehr|\bSEV\b|Baustelle|Bauarbeiten|baubedingt|Haltausfall|entfällt|hält nicht|Sperrung|gesperrt)/i;
+  function splitInfo(alerts, hints) {
+    const out = { alerts: [], notes: [] };
+    (alerts || []).forEach((a) => {
+      if (THRU_RE.test(a.title + ' ' + (a.text || ''))) out.notes.push({ text: THRU_RE.test(a.title) ? a.title : (a.text || a.title) });
+      else out.alerts.push(a);
+    });
+    (hints || []).forEach((h) => {
+      const t = String(h || '').trim();
+      if (!t) return;
+      if (THRU_RE.test(t)) out.notes.push({ text: t });
+      else if (WORK_RE.test(t) && !out.alerts.some((a) => a.title === t)) out.alerts.push({ title: t, text: '' });
+    });
+    out.notes = out.notes.filter((n, i, arr) => arr.findIndex((m) => m.text === n.text) === i).slice(0, 3);
+    return out;
+  }
+  M.splitInfo = splitInfo;
+
   /* =====================================================================
      1) Transitous / MOTIS 2
      ===================================================================== */
@@ -149,7 +169,7 @@
     const modesOut = (keys) => (keys && keys.length ? [].concat.apply([], keys.map((k) => MODE_OUT[k] || [])) : null);
 
     const lineOf = (o) => mkLine(o.displayName || o.routeShortName || o.tripShortName || '', modeKey(o.mode), o.routeColor, o.routeTextColor,
-      { agency: o.agencyName || '', routeId: o.routeId || '' });
+      { agency: o.agencyName || '', routeId: o.routeId || '', longName: o.routeLongName || '' });
 
     function placeParam(p) {
       if (p.src === 'motis' && p.type === 'stop' && p.id && !String(p.id).includes(',')) return p.id;
@@ -194,7 +214,7 @@
         stops: (l.intermediateStops || []).map((p) => ({
           id: p.stopId || '', name: p.name, lat: p.lat, lon: p.lon,
           arr: d(p.arrival), arrPlanned: d(p.scheduledArrival), dep: d(p.departure), depPlanned: d(p.scheduledDeparture),
-          platform: p.track || p.scheduledTrack || '', cancelled: !!p.cancelled
+          platform: p.track || p.scheduledTrack || '', plannedPlatform: p.scheduledTrack || '', cancelled: !!p.cancelled
         })),
         coords: g && g.points ? M.decodePolyline(g.points, g.precision == null ? 6 : g.precision) : [],
         distance: l.distance || (g && g.length) || null,
@@ -202,13 +222,17 @@
         realtime: !!l.realTime,
         cancelled: !!l.cancelled,
         alerts: alertList([].concat(l.alerts || [], l.from.alerts || [], l.to.alerts || [])),
-        interline: !!l.interlineWithPreviousLeg
+        notes: [],
+        interline: !!l.interlineWithPreviousLeg,
+        wheelchair: l.wheelchairAccessible === 'ACCESSIBLE'
       };
       if (ctx) {
         if (/^(START|Start)$/.test(leg.from.name)) leg.from.name = ctx.fromName;
         if (/^(END|Ende|Ziel)$/.test(leg.to.name)) leg.to.name = ctx.toName;
       }
       if (!leg.coords.length) leg.coords = [[leg.from.lon, leg.from.lat]].concat(leg.stops.map((s) => [s.lon, s.lat]), [[leg.to.lon, leg.to.lat]]);
+      const inf = splitInfo(leg.alerts);
+      leg.alerts = inf.alerts; leg.notes = inf.notes;
       return leg;
     }
 
@@ -231,7 +255,7 @@
       const p = st.place || {};
       const planned = p.scheduledDeparture || p.scheduledArrival;
       const rt = p.departure || p.arrival || planned;
-      return {
+      const o = {
         tripId: st.tripId, line: lineOf(st),
         headsign: st.headsign || (st.tripTo && st.tripTo.name) || '',
         time: d(rt), planned: d(planned || rt),
@@ -239,8 +263,12 @@
         realtime: !!st.realTime, cancelled: !!(st.cancelled || st.tripCancelled),
         platform: p.track || p.scheduledTrack || '', plannedPlatform: p.scheduledTrack || '',
         stop: { id: p.stopId, name: p.name, lat: p.lat, lon: p.lon, src: 'motis', type: 'stop' },
-        alerts: alertList(p.alerts), src: 'motis'
+        alerts: alertList(p.alerts), src: 'motis',
+        wheelchair: st.wheelchairAccessible === 'ACCESSIBLE'
       };
+      const inf = splitInfo(o.alerts);
+      o.alerts = inf.alerts; o.notes = inf.notes;
+      return o;
     }
 
     return {
@@ -300,19 +328,27 @@
       },
       async trip(tripId) {
         const it = await call('trip', ['v5', 'v6', 'v4', 'v1'], '/trip', { tripId, language: 'de' }, { ttl: 15000 });
-        const legs = (it.legs || []).map((l) => nLeg(l)).filter((l) => !l.walk);
-        if (!legs.length) throw new ApiError('Fahrt nicht gefunden', 404);
-        const L = legs[0];
+        const all = (it.legs || []).map((l) => nLeg(l)).filter((l) => !l.walk);
+        if (!all.length) throw new ApiError('Fahrt nicht gefunden', 404);
+        const L = all[0];
+        // nur die eigene Linie zeigen; fährt das Fahrzeug als andere Linie weiter, wird das als Hinweis angezeigt
+        const legs = [];
+        for (const l of all) { if (legs.length && l.line && (l.line.name !== L.line.name || l.line.mode !== L.line.mode)) break; legs.push(l); }
+        const cont = all[legs.length] || null;
         const stops = [];
         legs.forEach((leg, i) => {
-          if (i === 0) stops.push({ id: leg.from.id, name: leg.from.name, lat: leg.from.lat, lon: leg.from.lon, arr: null, arrPlanned: null, dep: leg.from.time, depPlanned: leg.from.planned, platform: leg.from.platform, cancelled: leg.from.cancelled });
+          if (i === 0) stops.push({ id: leg.from.id, name: leg.from.name, lat: leg.from.lat, lon: leg.from.lon, arr: null, arrPlanned: null, dep: leg.from.time, depPlanned: leg.from.planned, platform: leg.from.platform, plannedPlatform: leg.from.plannedPlatform, cancelled: leg.from.cancelled });
           leg.stops.forEach((s) => stops.push(s));
-          stops.push({ id: leg.to.id, name: leg.to.name, lat: leg.to.lat, lon: leg.to.lon, arr: leg.to.time, arrPlanned: leg.to.planned, dep: null, depPlanned: null, platform: leg.to.platform, cancelled: leg.to.cancelled });
+          stops.push({ id: leg.to.id, name: leg.to.name, lat: leg.to.lat, lon: leg.to.lon, arr: leg.to.time, arrPlanned: leg.to.planned, dep: null, depPlanned: null, platform: leg.to.platform, plannedPlatform: leg.to.plannedPlatform, cancelled: leg.to.cancelled });
         });
         return {
           tripId, line: L.line, headsign: L.headsign || stops[stops.length - 1].name, stops,
+          wheelchair: legs.some((l) => l.wheelchair),
           coords: [].concat.apply([], legs.map((l) => l.coords)), realtime: legs.some((l) => l.realtime),
-          alerts: alertList([].concat.apply([], legs.map((l) => l.alerts))), src: 'motis'
+          alerts: alertList([].concat.apply([], legs.map((l) => l.alerts))),
+          notes: [].concat.apply([], legs.map((l) => l.notes || [])).filter((n, i, a) => a.findIndex((m) => m.text === n.text) === i),
+          continues: cont ? { line: cont.line, headsign: cont.headsign || cont.to.name, at: cont.from.name } : null,
+          src: 'motis'
         };
       },
       async vehicles(b, zoom) {
@@ -381,7 +417,7 @@
       return {
         id: st.id, name: st.name, lat: st.lat, lon: st.lon,
         arr: d(s.arrival), arrPlanned: d(s.plannedArrival), dep: d(s.departure), depPlanned: d(s.plannedDeparture),
-        platform: s.departurePlatform || s.arrivalPlatform || '', cancelled: !!s.cancelled
+        platform: s.departurePlatform || s.arrivalPlatform || '', plannedPlatform: s.plannedDeparturePlatform || s.plannedArrivalPlatform || '', cancelled: !!s.cancelled
       };
     }
     function nLeg(l) {
@@ -397,8 +433,13 @@
         distance: l.distance || null,
         realtime: l.departureDelay != null || l.arrivalDelay != null,
         cancelled: !!l.cancelled,
-        alerts: alertList((l.remarks || []).filter((r) => r.type === 'warning' || r.type === 'status').map((r) => ({ title: r.summary || '', text: r.text || '' })))
+        alerts: alertList((l.remarks || []).filter((r) => r.type === 'warning' || r.type === 'status').map((r) => ({ title: r.summary || '', text: r.text || '' }))),
+        notes: []
       };
+      if (!walk) {
+        const inf = splitInfo(leg.alerts, (l.remarks || []).filter((r) => r.type === 'hint').map((r) => r.text));
+        leg.alerts = inf.alerts; leg.notes = inf.notes;
+      }
       leg.duration = leg.from.time && leg.to.time ? (leg.to.time - leg.from.time) / 60000 : 0;
       if (leg.coords.length < 2) leg.coords = [[leg.from.lon, leg.from.lat]].concat(leg.stops.map((s) => [s.lon, s.lat]), [[leg.to.lon, leg.to.lat]]);
       return leg;
@@ -449,7 +490,9 @@
           time: d(x.when || x.plannedWhen), planned: d(x.plannedWhen || x.when),
           delay: x.delay != null ? Math.round(x.delay / 60) : null, realtime: x.delay != null, cancelled: !!x.cancelled,
           platform: x.platform || x.plannedPlatform || '', plannedPlatform: x.plannedPlatform || '',
-          stop: nLoc(x.stop) || s, alerts: alertList((x.remarks || []).filter((r) => r.type === 'warning').map((r) => ({ title: r.summary, text: r.text }))), src: 'db'
+          stop: nLoc(x.stop) || s, src: 'db',
+          ...splitInfo(alertList((x.remarks || []).filter((r) => r.type === 'warning').map((r) => ({ title: r.summary, text: r.text }))),
+            (x.remarks || []).filter((r) => r.type === 'hint').map((r) => r.text))
         })).filter((x) => x.line);
         return { stop: s, list, alerts: [] };
       },
@@ -518,11 +561,26 @@
     }
   }
 
+  /* Linien je Haltestelle merken (für Listen wie „Abfahrten / Departure“) */
+  const ORDER = { tram: 0, bus: 1, sbahn: 2, ubahn: 3, regio: 4, fern: 5, ferry: 6, other: 7 };
+  M.sortLines = (lines) => lines.slice().sort((a, b) => (ORDER[a.mode] - ORDER[b.mode]) || String(a.name).localeCompare(String(b.name), 'de', { numeric: true }));
+  function rememberLines(stop, list) {
+    if (!stop || !stop.name || !list || !list.length) return;
+    const all = M.store.get('stopLines', {});
+    const seen = new Map();
+    (all[stop.name] || []).concat(list.map((x) => x.line)).forEach((l) => { if (l && !seen.has(l.mode + '|' + l.name)) seen.set(l.mode + '|' + l.name, { name: l.name, full: l.full, mode: l.mode, color: l.color, text: l.text }); });
+    all[stop.name] = M.sortLines(Array.from(seen.values())).slice(0, 24);
+    const keys = Object.keys(all);
+    if (keys.length > 120) delete all[keys[0]];
+    M.store.set('stopLines', all);
+  }
+  M.linesForStop = (name) => (M.store.get('stopLines', {})[name] || []);
+
   M.Transit = {
     Motis, DB, lastSource: 'Transitous',
     search: (text, near) => withFallback('search', [text, near]),
     reverse: (lat, lon) => withFallback('reverse', [lat, lon]),
-    departures: (stop, o) => withFallback('departures', [stop, o]),
+    departures: (stop, o) => withFallback('departures', [stop, o]).then((r) => { rememberLines(r.stop || stop, r.list); return r; }),
     journeys: (q) => withFallback('journeys', [q]),
     trip: (tripId, src) => (src === 'db' ? DB.trip(tripId) : withFallback('trip', [tripId])),
     vehicles: (b, z) => Motis.vehicles(b, z),
@@ -591,6 +649,52 @@
         line: L.line, next: L.next, stops: Array.from(L.stops),
         headsigns: Array.from(L.headsigns.entries()).sort((a, b) => b[1] - a[1]).map((x) => x[0]).slice(0, 3)
       })).sort((a, b) => (order[a.line.mode] - order[b.line.mode]) || a.line.name.localeCompare(b.line.name, 'de', { numeric: true }));
+    },
+
+    /** Alle Linien einer Stadt: Abfahrten wichtiger Haltestellen, über das ganze Stadtgebiet verteilt */
+    async linesCity(lat, lon, onUpdate) {
+      const box = M.cityBox(lat, lon);
+      let groups = [];
+      try { groups = M.Transit.groupStops(await M.Transit.stopsInBox(box.minLat, box.minLon, box.maxLat, box.maxLon)); } catch (e) { /* unten Fallback */ }
+      if (!groups.length) groups = await M.Transit.nearby(lat, lon, 1500).catch(() => []);
+      if (!groups.length) throw new ApiError('Keine Haltestellen gefunden', 404);
+      // je Rasterfeld (4 × 4) die wichtigste Haltestelle, dazu die wichtigsten der ganzen Stadt
+      const R = 4, pick = new Map();
+      const cell = (v, a, b) => Math.max(0, Math.min(R - 1, Math.floor(((v - a) / (b - a || 1)) * R)));
+      groups.forEach((g) => {
+        const k = cell(g.lat, box.minLat, box.maxLat) + ':' + cell(g.lon, box.minLon, box.maxLon);
+        const cur = pick.get(k);
+        if (!cur || (g.importance || 0) > (cur.importance || 0)) pick.set(k, g);
+      });
+      const top = groups.slice().sort((a, b) => (b.importance || 0) - (a.importance || 0)).slice(0, 6);
+      const seen = new Set(), list = [];
+      top.concat(Array.from(pick.values())).forEach((g) => { if (!seen.has(g.name)) { seen.add(g.name); list.push(g); } });
+      const lines = new Map();
+      const order = { tram: 0, bus: 1, sbahn: 2, ubahn: 3, regio: 4, fern: 5, ferry: 6, other: 7 };
+      const result = () => Array.from(lines.values()).map((L) => ({
+        line: L.line, next: L.next, stops: Array.from(L.stops),
+        headsigns: Array.from(L.headsigns.entries()).sort((a, b) => b[1] - a[1]).map((x) => x[0]).slice(0, 3)
+      })).sort((a, b) => ((order[a.line.mode] ?? 9) - (order[b.line.mode] ?? 9)) || a.line.name.localeCompare(b.line.name, 'de', { numeric: true }));
+      let i = 0;
+      const worker = async () => {
+        while (i < list.length) {
+          const s = list[i++];
+          try {
+            const dep = await M.Transit.departures(s, { n: 100 });
+            dep.list.forEach((x) => {
+              const key = x.line.mode + '|' + x.line.name;
+              let L = lines.get(key);
+              if (!L) { L = { line: x.line, headsigns: new Map(), next: x, stops: new Set() }; lines.set(key, L); }
+              L.headsigns.set(x.headsign, (L.headsigns.get(x.headsign) || 0) + 1);
+              L.stops.add(s.name);
+              if (x.time < L.next.time) L.next = x;
+            });
+            if (onUpdate) onUpdate(result());
+          } catch (e) { /* einzelne Haltestelle überspringen */ }
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+      return result();
     },
 
     /** Freitext → Ort (bevorzugt Haltestellen) */

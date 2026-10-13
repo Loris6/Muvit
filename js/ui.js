@@ -1,9 +1,8 @@
-/* Muvit – UI-Grundgerüst: Sheet-Navigation, Layout, wiederverwendbare Komponenten */
+/* Muvit – UI: frei ziehbares Sheet über der Karte, Navigation, Komponenten im Referenz-Stil */
 (function (M) {
   'use strict';
 
-  const $ = M.$;
-  const app = () => document.getElementById('app');
+  const $ = M.$, esc = M.esc, icon = M.icon;
 
   /* =====================================================================
      Komponenten
@@ -11,256 +10,264 @@
   const C = {};
   M.C = C;
 
-  C.lineBadge = function (line, opts) {
+  /** DB-Logo (Regio- und Fernverkehr der Deutschen Bahn) */
+  const DB_LOGO = '<svg viewBox="0 0 34 24" aria-hidden="true"><rect x="1" y="1" width="32" height="22" rx="3.6" fill="#fff" stroke="#EC0016" stroke-width="2"/>' +
+    '<text x="17" y="17.4" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="14" letter-spacing="-.3" fill="#EC0016">DB</text></svg>';
+  M.DB_LOGO = DB_LOGO;
+  /** Verkehrsmittel-Zeichen wie an der Haltestelle: „Tram“ (Quadrat, rot), „Bus“ (Kreis, lila),
+      S-Bahn (grüner Kreis), U-Bahn (blaues Quadrat), DB-Logo für DB-Züge, sonst Zug-Piktogramm */
+  C.modeBadge = function (mode, o, line) {
+    o = o || {};
+    const sm = o.sm ? ' sm' : '';
+    switch (mode) {
+      case 'tram': return '<span class="bd m tram' + sm + '" title="Straßenbahn">Tram</span>';
+      case 'bus': return '<span class="bd m bus' + sm + '" title="Bus">' + (o.upper ? 'BUS' : 'Bus') + '</span>';
+      case 'sbahn': return '<span class="bd m sb' + sm + '" title="S-Bahn">S</span>';
+      case 'ubahn': return '<span class="bd m ub' + sm + '" title="U-Bahn">U</span>';
+      case 'regio': case 'fern': {
+        const label = mode === 'fern' ? 'Fernverkehr' : 'Regionalverkehr';
+        if (!line || M.isDBLine(line)) return '<span class="bd m db' + sm + '" title="DB ' + label + '">' + DB_LOGO + '</span>';
+        return '<span class="bd m zug' + sm + '" title="' + label + (line.agency ? ' · ' + esc(line.agency) : '') + '">' + icon('train') + '</span>';
+      }
+      case 'ferry': return '<span class="bd m ferry' + sm + '" title="Fähre">' + icon('ferry') + '</span>';
+      default: return '';
+    }
+  };
+  /** Liniennummer: Tram eckig in Linienfarbe, Bus rund */
+  C.lineBadge = function (line, o) {
     if (!line) return '';
-    opts = opts || {};
-    const mi = M.modeInfo(line.mode);
-    const withIcon = opts.icon || (line.mode === 'fern' || line.mode === 'regio') && opts.icon !== false;
-    return '<span class="lb ' + line.mode + (opts.lg ? ' lg' : '') + '" style="background:' + line.color + ';color:' + line.text + '" title="' + M.esc(mi.label + ' ' + line.full) + '">' +
-      (withIcon ? M.icon(mi.icon) : '') + M.esc(line.name) + '</span>';
+    o = o || {};
+    const round = line.mode === 'bus' ? ' round' : '';
+    return '<span class="bd' + round + (o.sm ? ' sm' : '') + '" style="background:' + line.color + ';color:' + line.text + '" title="' + esc(M.modeInfo(line.mode).label + ' ' + line.full) + '">' + esc(line.name) + '</span>';
   };
-  C.modeIcon = function (mode, color) {
-    const mi = M.modeInfo(mode);
-    return '<span class="mode-ico" style="background:' + (color || mi.color) + '">' + M.icon(mi.icon) + '</span>';
+  /** Immer Verkehrsmittel-Zeichen + Linie: [Tram][3], [Bus][73], [S][S1], [DB][RE1] */
+  C.badges = function (line, o) {
+    if (!line) return '';
+    o = o || {};
+    return '<span class="bds">' + C.modeBadge(line.mode, o, line) + C.lineBadge(line, o) + '</span>';
   };
-  C.delayClass = function (delay, realtime) {
-    if (!realtime || delay == null) return '';
-    if (delay <= 0) return 'ok';
-    if (delay < 5) return 'warn';
-    return 'late';
+  /** Linien einer Haltestelle (Bild „Abfahrten / Departure“): Linien | weitere Verkehrsmittel */
+  C.stopLines = function (lines) {
+    const ls = M.sortLines(lines || []);
+    const main = ls.filter((l) => l.mode === 'tram' || l.mode === 'bus').slice(0, 12);
+    const extra = [];
+    if (ls.some((l) => l.mode === 'bus')) extra.push(C.modeBadge('bus', { sm: true }));
+    ['sbahn', 'ubahn', 'regio', 'fern', 'ferry'].forEach((m) => ls.filter((l) => l.mode === m).forEach((l) => extra.push(C.modeBadge(m, { sm: true }, l))));
+    const key = (b) => b.replace(/ title="[^"]*"/, '');
+    const modes = extra.filter((b, i) => b && extra.findIndex((c) => key(c) === key(b)) === i);
+    let h = main.map((l) => C.lineBadge(l, { sm: true })).join('');
+    if (modes.length) h += (main.length ? '<span class="vsep"></span>' : '') + modes.join('');
+    return h;
   };
-  /** Zeit mit Echtzeit: grün pünktlich, orange/rot verspätet, Plan durchgestrichen */
-  C.time = function (time, planned, delay, realtime, cancelled) {
-    if (cancelled) return '<span class="t late">' + M.fmtTime(planned || time) + '</span>';
-    const cls = C.delayClass(delay, realtime);
-    let html = '<span class="t ' + cls + '">' + M.fmtTime(time || planned) + '</span>';
-    if (realtime && delay && delay !== 0 && planned) html += '<span class="t-plan">' + M.fmtTime(planned) + '</span>';
-    return html;
+
+  /** Statustext + Farbe einer Abfahrt */
+  C.status = function (x) {
+    if (x.cancelled) return { text: 'Fällt aus', cls: 'c-red' };
+    if (!x.realtime || x.delay == null) return { text: 'Planmäßig', cls: 'c-gray' };
+    if (x.delay < 0) return { text: 'Früher erwartet (' + x.delay + ' Min.)', cls: 'c-blue' };
+    if (x.delay === 0) return { text: 'Pünktlich erwartet', cls: 'c-green' };
+    return { text: 'Verspätet (+' + x.delay + ' Min.)', cls: x.delay >= 5 ? 'c-red' : 'c-orange' };
   };
-  C.rtPill = function (delay, realtime, cancelled) {
-    if (cancelled) return '<span class="rt-pill cancel">fällt aus</span>';
-    if (!realtime || delay == null) return '<span class="rt-pill plan">Fahrplan</span>';
-    if (delay <= 0) return '<span class="rt-pill ok"><span class="live"></span>pünktlich</span>';
-    return '<span class="rt-pill ' + (delay < 5 ? 'warn' : 'late') + '"><span class="live"></span>+' + delay + ' Min</span>';
+  C.countdown = function (t, dot) {
+    const m = M.minsUntil(t);
+    if (m <= 0) return 'Jetzt';
+    if (m < 100) return 'In ' + m + ' Min' + (dot ? '.' : '');
+    return 'Um ' + M.fmtTime(t);
   };
-  C.platform = function (p, planned) {
+  /** Tram/Bus: „Bstg.“ (Bahnsteig), Züge: „Gleis“ */
+  C.platform = (p, mode) => (p ? (M.isRail(mode) ? 'Gleis ' : 'Bstg. ') + p : '');
+  /** Gleiswechsel bei Zügen (aktuelles ≠ geplantes Gleis) */
+  C.platformChanged = (p, planned, mode) => !!(p && planned && String(p) !== String(planned) && M.isRail(mode));
+  C.bstg = function (p, mode, planned) {
     if (!p) return '';
-    const changed = planned && p !== planned;
-    return '<span class="plat' + (changed ? ' changed' : '') + '" title="' + (changed ? 'Gleiswechsel, geplant ' + M.esc(planned) : '') + '">' + (/^\d+[a-z]?$/i.test(p) ? 'Gl. ' : '') + M.esc(p) + '</span>';
+    const chg = C.platformChanged(p, planned, mode);
+    return '<span class="bstg' + (chg ? ' chg' : '') + '"' + (chg ? ' title="Gleiswechsel – planmäßig Gleis ' + esc(planned) + '"' : '') + '>' + (M.isRail(mode) ? 'Gl. ' : 'Bstg. ') + esc(p) + '</span>';
   };
-  C.empty = function (icon, title, text, btn) {
-    return '<div class="empty fade-in"><div class="empty-ico">' + M.icon(icon) + '</div><h3>' + M.esc(title) + '</h3>' +
-      (text ? '<p>' + text + '</p>' : '') + (btn || '') + '</div>';
+  /** Bahnsteig/Gleis als Text in Unterzeilen, Gleiswechsel rot hinterlegt */
+  C.platformText = function (p, mode, planned) {
+    if (!p) return '';
+    const chg = C.platformChanged(p, planned, mode);
+    return '<span class="pf' + (chg ? ' chg' : '') + '"' + (chg ? ' title="Gleiswechsel – planmäßig Gleis ' + esc(planned) + '"' : '') + '>' + esc(C.platform(p, mode)) + '</span>';
   };
-  C.skeleton = function (kind, n) {
-    let s = '';
-    for (let i = 0; i < (n || 4); i++) s += '<div class="skel ' + (kind === 'card' ? 'skel-card' : 'skel-row') + '" style="animation-delay:' + i * 80 + 'ms"></div>';
-    return s;
+
+  /** Linien in Hinweistexten als Zeichen darstellen: „fährt weiter als Linie 3“ → fährt weiter als [Tram][3] */
+  const REF_RE = /\b(Straßenbahnlinie|Straßenbahn|Tram|STR|Buslinie|Bus|Linie|S-Bahn|S|U|RE|RB|IRE|ICE|IC|EC|ECE)\s?(\d{1,5}[a-zA-Z]?)\b/g;
+  const KW_MODE = { 'Straßenbahnlinie': 'tram', 'Straßenbahn': 'tram', Tram: 'tram', STR: 'tram', Buslinie: 'bus', Bus: 'bus', 'S-Bahn': 'sbahn', S: 'sbahn', U: 'ubahn', RE: 'regio', RB: 'regio', IRE: 'regio', ICE: 'fern', IC: 'fern', EC: 'fern', ECE: 'fern' };
+  function guessMode(num, ctxLine, stopName) {
+    const known = stopName ? M.linesForStop(stopName).find((l) => l.name === num) : null;
+    if (known) return known.mode;
+    if (ctxLine && (ctxLine.mode === 'tram' || ctxLine.mode === 'bus')) return /^\d+$/.test(num) && +num <= 12 ? 'tram' : 'bus';
+    return ctxLine ? ctxLine.mode : 'bus';
+  }
+  C.richText = function (text, ctxLine, stopName) {
+    const badge = (name, mode) => C.badges(M.mkLine(name, mode), { sm: true });
+    let h = esc(text || '').replace(REF_RE, (all, kw, num) => {
+      const mode = KW_MODE[kw] || guessMode(num, ctxLine, stopName);
+      const name = mode === 'sbahn' || mode === 'ubahn' || mode === 'regio' ? kw.replace('S-Bahn', 'S') + num : mode === 'fern' ? kw + ' ' + num : num;
+      return '<span class="ref">' + badge(name, mode) + '</span>';
+    });
+    // „fährt weiter als 3“ / „kommt als 73“ ohne Verkehrsmittel
+    h = h.replace(/(weiter als|kommt als|kommend als)\s+(\d{1,3}[a-zA-Z]?)\b/gi, (all, w, num) => w + ' <span class="ref">' + badge(num, guessMode(num, ctxLine, stopName)) + '</span>');
+    return h;
   };
-  C.error = function (err, onRetry) {
+  /** Hinweiszeilen unter einer Linie: Störungen/Umleitungen (Warnung) und Durchläufer (Info) */
+  C.infoLines = function (x, i, o) {
+    o = o || {};
+    const at = x.stop && x.stop.name;
+    let h = '';
+    (x.alerts || []).slice(0, o.max || 2).forEach((a, k) => {
+      h += '<button class="alert-line" data-alert="' + i + ':' + k + '">' + icon('warnFill', 'w') + '<span class="tx">' + C.richText(a.title, x.line, at) + '</span><span class="chev">' + (a.text ? icon('right') : '') + '</span></button>';
+    });
+    (x.notes || []).slice(0, 2).forEach((n) => {
+      h += '<div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">' + C.richText(n.text, x.line, at) + '</span><span></span></div>';
+    });
+    return h;
+  };
+
+  /** Abfahrtszeile wie im Bild „Haltestelle“ */
+  C.depRow = function (x, i, o) {
+    o = o || {};
+    const st = C.status(x);
+    const clk = 'Um ' + M.fmtTime(x.planned || x.time) + (x.realtime && x.delay ? '<span class="vsl"> (vsl.: ' + M.fmtTime(x.time) + ')</span>' : '');
+    const sub = [ '<span class="' + st.cls + '">' + esc(st.text) + '</span>' ];
+    if (x.platform) sub.push(C.platformText(x.platform, x.line.mode, x.plannedPlatform));
+    if (o.stopName && x.stop) sub.push('<span class="pf">' + esc(x.stop.name) + '</span>');
+    let h = '<div class="dep-item' + (x.cancelled ? ' cancel' : '') + '"><button class="dep" data-i="' + i + '">' +
+      C.badges(x.line, { upper: true }) +
+      '<div style="min-width:0"><div class="dep-name">' + esc(x.headsign || '–') + '</div><div class="dep-sub">' + sub.join('<i class="sep"> • </i>') + '</div></div>' +
+      '<div class="dep-r"><div class="cd ' + (x.cancelled ? 'c-red' : st.cls === 'c-gray' ? '' : st.cls) + '">' + C.countdown(x.time, true) + '</div><div class="clk">' + clk + '</div></div>' +
+      '<span class="chev">' + icon('right') + '</span></button>';
+    if (o.alerts !== false) h += C.infoLines(x, i);
+    return h + '</div>';
+  };
+
+  /** Haltestellenzeile wie im Bild „Abfahrten / Departure“ */
+  C.stopRow = function (s, i, o) {
+    o = o || {};
+    const lines = s.lines || M.linesForStop(s.name);
+    const area = o.area != null ? o.area : (s.area || (s.lat != null && M.inMagdeburg(s.lat, s.lon) ? 'Magdeburg' : ''));
+    return '<div class="stop-row" data-i="' + i + '" role="button" tabindex="0">' + icon('hOutline', 'h') +
+      '<div style="min-width:0"><div class="nm">' + esc(s.name) + '</div>' +
+      '<div class="ln" data-lines="' + i + '">' + C.stopLines(lines) + (area ? '<span class="area">• ' + esc(area) + '</span>' : '') + '</div></div>' +
+      '<div class="end">' + (o.end || '') + (o.star !== false ? '<button class="star' + (M.favs.hasStop(s) ? ' on' : '') + '" data-star="' + i + '" aria-label="Favorit">' + icon(M.favs.hasStop(s) ? 'starFill' : 'star') + '</button>' : '') + '</div></div>';
+  };
+
+  /** Verbindungszeile (Ergebnisliste) */
+  C.jrow = function (j, i) {
+    const transit = j.legs.filter((l) => !l.walk);
+    const first = transit[0];
+    const dStart = j.realtime ? M.delayMin(j.legs[0].from.time, j.legs[0].from.planned) : null;
+    const dEnd = j.realtime ? M.delayMin(j.legs[j.legs.length - 1].to.time, j.legs[j.legs.length - 1].to.planned) : null;
+    const dl = (d) => (d == null ? '' : '<span class="d ' + (d === 0 ? 'c-green' : d < 0 ? 'c-red' : d >= 5 ? 'c-red' : 'c-orange') + '">' + (d >= 0 ? '+' : '') + d + '</span>');
+    let legs = '';
+    j.legs.forEach((l, k) => {
+      if (k) legs += icon('right', 'arr');
+      legs += l.walk ? '<span class="wk">' + icon('walk') + Math.max(1, Math.round(l.duration)) + '</span>' : C.badges(l.line, { sm: true });
+    });
+    const st = first ? C.status({ realtime: first.realtime, delay: first.from.delay, cancelled: j.cancelled }) : { text: 'Fußweg', cls: 'c-gray' };
+    const sub = first ? '<span class="' + st.cls + '">' + esc(st.text) + '</span> • ab ' + esc(first.from.name) + (first.from.platform ? ', ' + C.platformText(first.from.platform, first.line.mode, first.from.plannedPlatform) : '') : esc(M.fmtDist(j.legs[0].distance));
+    return '<button class="jrow" data-i="' + i + '"><div style="min-width:0">' +
+      '<div class="tt">' + M.fmtTime(j.legs[0].from.time) + dl(dStart) + '<span class="c-gray">–</span>' + M.fmtTime(j.legs[j.legs.length - 1].to.time) + dl(dEnd) + '</div>' +
+      '<div class="legs">' + legs + '</div><div class="sub">' + sub + '</div></div>' +
+      '<div class="r"><div class="a">' + M.fmtDur(j.duration).replace('Min', 'Min.') + '</div><div class="b">' + (j.transfers ? j.transfers + (j.transfers === 1 ? ' Umstieg' : ' Umstiege') : 'Direkt') + '</div></div>' +
+      '<span class="chev">' + icon('right') + '</span></button>';
+  };
+
+  C.empty = (title, text, btn) => '<div class="empty"><b>' + esc(title) + '</b>' + (text || '') + (btn ? '<div>' + btn + '</div>' : '') + '</div>';
+  C.skel = (n) => Array.from({ length: n || 4 }, () => '<div class="skel"></div>').join('');
+  C.error = function (err, retry) {
     const net = err && (err.network || err.status === 0);
-    const el = M.h(C.empty(net ? 'wifiOff' : 'alert', net ? 'Keine Verbindung' : 'Das hat nicht geklappt',
-      M.esc((err && err.message) || 'Unbekannter Fehler'), onRetry ? '<button class="btn soft sm" data-retry>' + M.icon('refresh') + 'Erneut versuchen</button>' : ''));
-    if (onRetry) el.querySelector('[data-retry]').addEventListener('click', onRetry);
+    const el = M.h('<div>' + C.empty(net ? 'Keine Verbindung' : 'Das hat nicht geklappt', esc((err && err.message) || 'Unbekannter Fehler'),
+      retry ? '<button class="btn-o" data-retry>' + icon('refresh') + 'Erneut versuchen</button>' : '') + '</div>');
+    if (retry) el.querySelector('[data-retry]').addEventListener('click', retry);
     return el;
   };
-  C.alerts = function (alerts) {
-    return (alerts || []).map((a) => '<div class="note warn tl-alert">' + M.icon('alert') + '<div><b>' + M.esc(a.title) + '</b>' +
-      (a.text ? '<br>' + M.esc(a.text.slice(0, 280)) + (a.text.length > 280 ? '…' : '') : '') + '</div></div>').join('');
-  };
-
-  /* ---------- Verbindungskarte (neu designt) ---------- */
-  C.segmentBar = function (j) {
-    const total = Math.max(1, j.legs.reduce((s, l) => s + Math.max(1, l.duration || 1), 0));
-    return '<div class="jc-bar">' + j.legs.map((l) => {
-      const grow = Math.max(l.walk ? 0.6 : 1.4, (Math.max(1, l.duration) / total) * 12);
-      if (l.walk) {
-        return '<div class="jc-seg walk" style="flex:' + grow.toFixed(2) + ' 1 0" title="' + Math.round(l.duration) + ' Min Fußweg">' +
-          (l.duration >= 3 && grow > 1.3 ? '<span>' + M.icon('walk') + '</span>' : '') + '</div>';
-      }
-      const mi = M.modeInfo(l.line.mode);
-      return '<div class="jc-seg" style="flex:' + grow.toFixed(2) + ' 1 0;background:' + l.line.color + ';color:' + l.line.text + '" title="' + M.esc(mi.label + ' ' + l.line.full + ' → ' + l.headsign) + '">' +
-        (grow > 2.2 ? M.icon(mi.icon) : '') + M.esc(l.line.name) + '</div>';
-    }).join('') + '</div>';
-  };
-  C.journeyCard = function (j, idx, opts) {
-    opts = opts || {};
-    const first = j.legs.find((l) => !l.walk);
-    const dDep = first ? first.from.delay : null;
-    const dStart = j.realtime ? M.delayMin(j.legs[0].from.time, j.legs[0].from.planned) : null;
-    const dArr = j.realtime ? M.delayMin(j.legs[j.legs.length - 1].to.time, j.legs[j.legs.length - 1].to.planned) : null;
-    const walkStart = j.legs[0].walk ? Math.round(j.legs[0].duration) : 0;
-    const dep = j.legs[0].from;
-    const last = j.legs[j.legs.length - 1].to;
-    let foot = '';
-    if (first) {
-      foot = (walkStart ? M.icon('walk') + walkStart + ' Min, dann ' : '') +
-        'ab <b>' + M.esc(first.from.name) + '</b>' + (first.from.platform ? ' · ' + (/^\d/.test(first.from.platform) ? 'Gl. ' : '') + M.esc(first.from.platform) : '');
-    } else foot = M.icon('walk') + ' Komplett zu Fuß · ' + M.fmtDist(j.legs[0].distance);
-    const mins = M.minsUntil(dep.time);
-    return '<button class="jc fade-in' + (j.cancelled ? ' cancelled' : '') + (opts.sel ? ' sel' : '') + '" data-idx="' + idx + '">' +
-      (opts.badge ? '<span class="jc-badge">' + M.esc(opts.badge) + '</span>' : '') +
-      '<div class="jc-top"><div class="jc-times">' +
-        '<span class="big">' + C.time(dep.time, dep.planned, dStart, j.realtime, false) + '</span>' +
-        '<span class="arrow">' + M.icon('arrow') + '</span>' +
-        '<span class="big">' + C.time(last.time, last.planned, dArr, j.realtime, false) + '</span>' +
-      '</div><div class="jc-dur"><div class="d">' + M.fmtDur(j.duration) + '</div><div class="x">' +
-        (j.transfers ? j.transfers + (j.transfers === 1 ? ' Umstieg' : ' Umstiege') : 'Direkt') + '</div></div></div>' +
-      '<div class="jc-delay">' + (j.cancelled ? C.rtPill(0, true, true) : first ? C.rtPill(dDep, first.realtime, false) : '') +
-        (j.price ? '<span class="rt-pill plan">ab ' + M.money(j.price.amount, j.price.currency) + '</span>' : '') +
-        (j.legs.some((l) => l.alerts && l.alerts.length) ? '<span class="rt-pill warn">' + M.icon('alert') + 'Hinweise</span>' : '') + '</div>' +
-      C.segmentBar(j) +
-      '<div class="jc-foot"><span class="grow">' + foot + '</span>' +
-        (mins >= 0 && mins <= 90 ? '<span class="countdown">' + M.fmtCountdown(dep.time) + '</span>' : '') + '</div>' +
-      '</button>';
-  };
-
-  /* ---------- Abfahrtszeile ---------- */
-  C.depRow = function (x, idx, opts) {
-    opts = opts || {};
-    const mins = M.minsUntil(x.time);
-    const big = x.cancelled ? '<span class="t late">–</span>' :
-      mins <= 0 ? '<span class="mins now">jetzt</span>' :
-      mins < 60 ? '<span class="mins">' + mins + '<small>Min</small></span>' : '<span class="mins">' + M.fmtTime(x.time) + '</span>';
-    return '<button class="dep fade-in' + (x.cancelled ? ' cancelled' : '') + '" data-idx="' + idx + '">' +
-      C.lineBadge(x.line, { lg: true }) +
-      '<div style="min-width:0"><div class="dep-dir">' + M.esc(x.headsign || '–') + '</div>' +
-        '<div class="dep-sub">' + C.rtPill(x.delay, x.realtime, x.cancelled) + (x.platform ? C.platform(x.platform, x.plannedPlatform) : '') +
-        (opts.showStop && x.stop ? '<span>' + M.esc(x.stop.name) + '</span>' : '') + '</div></div>' +
-      '<div class="dep-when">' + big + '<div class="clock">' + C.time(x.time, x.planned, x.delay, x.realtime, x.cancelled) + '</div></div>' +
-      '</button>';
+  C.lrow = function (o, i) {
+    return '<button class="lrow' + (o.cls ? ' ' + o.cls : '') + '" data-i="' + i + '">' + (o.lead != null ? o.lead : icon(o.icon || 'right', 'ic' + (o.white ? ' w' : ''))) +
+      '<div style="min-width:0"><div class="t">' + o.title + '</div>' + (o.sub ? '<div class="s' + (o.wrap ? ' wrap' : '') + '">' + o.sub + '</div>' : '') + '</div>' +
+      '<div class="e">' + (o.end || '') + (o.chev === false ? '' : '<span class="chev">' + icon('right') + '</span>') + '</div></button>';
   };
 
   /* =====================================================================
-     Sheet-Navigation
+     Sheet & Navigation
      ===================================================================== */
-  const UI = {
-    stack: [], cur: null, snap: 'half', views: {},
-    sheet: null, head: null, body: null
-  };
+  const UI = { stack: [], cur: null, h: 0, kb: 0, views: {} };
   M.UI = UI;
   M.Views = UI.views;
 
+  UI.maxH = () => Math.max(200, window.innerHeight - (UI.kb || 0));
+  UI.minH = () => 112;
+
   UI.init = function () {
-    UI.sheet = $('#sheet'); UI.head = $('#sheetHead'); UI.body = $('#sheetBody');
-    initDrag();
-    window.addEventListener('resize', M.debounce(() => { if (UI.cur) UI.setSnap(UI.snap, true); UI.layout(); M.Map.resize(); }, 120));
+    UI.sheet = $('#sheet'); UI.grab = $('#sheetGrab'); UI.head = $('#sheetHead'); UI.extra = $('#sheetExtra'); UI.body = $('#sheetBody');
+    UI.scroller = UI.body;
+    initGestures();
     initKeyboard();
+    window.addEventListener('resize', M.debounce(() => {
+      if (UI.h > UI.maxH() || UI.sheet.classList.contains('full')) UI.setH(UI.maxH(), false);
+      UI.layout(); M.Map.resize();
+    }, 120));
+  };
+
+  UI.setH = function (h, animate) {
+    const max = UI.maxH();
+    h = Math.round(Math.max(UI.minH(), Math.min(max, h)));
+    const instant = animate === false && !UI.dragging;
+    if (instant) UI.sheet.classList.add('dragging');
+    UI.sheet.style.height = h + 'px';
+    UI.h = h;
+    UI.sheet.classList.toggle('full', h >= max - 1);
+    if (instant) requestAnimationFrame(() => { if (!UI.dragging) UI.sheet.classList.remove('dragging'); });
     UI.layout();
   };
-
-  /* iOS/Android: Bildschirmtastatur – Sheet über der Tastatur halten (visualViewport) */
-  function initKeyboard() {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => {
-      const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
-      const val = kb > 80 ? kb : 0;   // kleine Schwankungen (Adressleiste) ignorieren
-      if (val === (UI.kb || 0)) return;
-      UI.kb = val;
-      document.documentElement.style.setProperty('--kb', val + 'px');
-      if (UI.cur && !M.isDesktop()) UI.setSnap(val ? 'full' : UI.snap, true);
-      UI.layout();
-    };
-    vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
-    // iOS verschiebt beim Fokussieren manchmal die Seite – nach dem Schließen zurücksetzen
-    document.addEventListener('focusout', () => setTimeout(() => { if (!UI.kb) window.scrollTo(0, 0); }, 120));
+  function heightFor(spec) {
+    const max = UI.maxH();
+    if (spec === 'full') return max;
+    if (typeof spec === 'number') return spec <= 1 ? max * spec : spec;
+    // 'fit': Inhaltshöhe (bis zur Markierung data-fit-end), begrenzt
+    const end = UI.body.querySelector('[data-fit-end]');
+    const content = end ? end.getBoundingClientRect().bottom - UI.sheet.getBoundingClientRect().top + UI.body.scrollTop + 22
+      : UI.grab.offsetHeight + UI.head.offsetHeight + (UI.extra.hidden ? 0 : UI.extra.offsetHeight) + UI.body.scrollHeight;
+    return Math.max(max * 0.45, Math.min(max * 0.82, content + 8));
   }
 
-  function snapPx(name) {
-    const H = window.innerHeight - (UI.kb || 0);
-    const top = topReserve();
-    const max = H - top;
-    if (name === 'peek') return Math.min(max, Math.max(230, Math.round(H * 0.32)));
-    if (name === 'full') return max;
-    return Math.min(max, Math.round(H * 0.56));
-  }
-  function topReserve() {
-    const tb = $('#topbar').getBoundingClientRect();
-    let y = tb.bottom + 10;
-    if (app().classList.contains('show-pill')) { const rp = $('#routePill').getBoundingClientRect(); if (rp.height) y = rp.bottom + 10; }
-    return Math.max(70, y);
-  }
-
-  UI.setSnap = function (name, instant) {
-    UI.snap = name;
-    if (M.isDesktop()) { UI.sheet.style.height = ''; UI.layout(); return; }
-    if (instant) UI.sheet.classList.add('dragging');
-    UI.sheet.style.height = snapPx(name) + 'px';
-    if (instant) requestAnimationFrame(() => UI.sheet.classList.remove('dragging'));
-    setTimeout(UI.layout, instant ? 0 : 400);
-  };
-
-  UI.mapPadding = function () {
-    const W = window.innerWidth, H = window.innerHeight;
-    if (M.isDesktop()) {
-      return { top: 60, bottom: 60, left: 20 + 420 + 40, right: 70 };
-    }
-    let top, bottom;
-    if (UI.cur) {
-      top = topReserve() + 6;
-      bottom = (UI.sheet.getBoundingClientRect().height || snapPx(UI.snap)) + 16;
-    } else {
-      const col = $('#overlayCol'), sc = $('#recentRow'), card = $('#searchCard');
-      top = col.offsetTop + Math.max(card.offsetTop + card.offsetHeight, sc.offsetTop + sc.offsetHeight) + 12;
-      bottom = dockReserve() + 16;
-    }
-    if (top + bottom > H - 140) { const k = (H - 140) / (top + bottom); top *= k; bottom *= k; }
-    return { top: Math.round(top), bottom: Math.round(bottom), left: 30, right: Math.min(70, W * 0.15) };
-  };
-
-  function dockReserve() {
-    const col = $('#overlayCol'), d = $('#dock');
-    return window.innerHeight - (col.offsetTop + d.offsetTop);
-  }
   UI.layout = function () {
-    const ctrls = $('#mapCtrls'), badge = $('#liveBadge');
-    const attrib = document.querySelector('.maplibregl-ctrl-bottom-left');
-    if (M.isDesktop()) {
-      ctrls.style.bottom = ''; badge.style.bottom = ''; ctrls.classList.remove('hide');
-      if (UI.cur) UI.sheet.style.top = topReserve() + 'px'; else UI.sheet.style.top = '';
-      if (attrib) { attrib.style.left = '460px'; attrib.style.bottom = '0px'; }
-      return;
+    const btn = $('#locateBtn');
+    if (btn) {
+      btn.style.bottom = (UI.h + 12 + (UI.kb || 0)) + 'px';
+      btn.classList.toggle('hide', UI.h > UI.maxH() - 150);
     }
-    const h = UI.cur ? UI.sheet.getBoundingClientRect().height : dockReserve();
-    ctrls.style.bottom = Math.round(h + 12) + 'px';
-    badge.style.bottom = Math.round(h + 14) + 'px';
-    // Kartenknöpfe nur zeigen, wenn genug Karte sichtbar ist
-    ctrls.classList.toggle('hide', window.innerHeight - h - topReserve() < 130);
-    if (attrib) { attrib.style.left = '0px'; attrib.style.bottom = Math.round(h + 6) + 'px'; attrib.classList.toggle('hide', window.innerHeight - h - topReserve() < 60); }
+  };
+  UI.mapPadding = function () {
+    const max = UI.maxH();
+    return { top: 60, bottom: Math.round(Math.min(UI.h || max * 0.5, max * 0.5)) + 24, left: 36, right: 36 };
   };
 
-  /* ---------- Öffnen / Zurück / Home ---------- */
+  /* ---------- Ansichten ---------- */
   UI.open = function (id, params, opts) {
-    const v = UI.views[id];
-    if (!v) { console.error('Unbekannte Ansicht', id); return; }
+    if (!UI.views[id]) { console.error('Unbekannte Ansicht', id); return; }
     M.Map.closePopup();
-    if (UI.cur) { teardown(UI.cur); }
-    const entry = { id, params: params || {}, opts: opts || {} };
-    if (opts && opts.replace && UI.stack.length) UI.stack[UI.stack.length - 1] = entry;
+    if (UI.cur) { UI.cur.entry.h = UI.h; teardown(UI.cur); }
+    const entry = { id, params: params || {}, opts: opts || {}, state: {} };
+    if (opts && opts.replace && UI.stack.length > 1) UI.stack[UI.stack.length - 1] = entry;
     else UI.stack.push(entry);
-    show(entry);
+    show(entry, false);
   };
   UI.back = function () {
+    if (UI.stack.length <= 1) return;
     if (UI.cur) teardown(UI.cur);
     UI.stack.pop();
-    const prev = UI.stack[UI.stack.length - 1];
-    if (prev) show(prev, true); else UI.home();
+    show(UI.stack[UI.stack.length - 1], true);
   };
   UI.home = function () {
     if (UI.cur) teardown(UI.cur);
-    UI.stack = []; UI.cur = null;
-    UI.sheet.hidden = true;
-    app().classList.add('is-home');
-    UI.setPill(null);
+    UI.stack = UI.stack.slice(0, 1);
+    if (!UI.stack.length) UI.stack.push({ id: 'home', params: {}, opts: {}, state: {} });
     M.Map.clearRoute();
-    M.Map.closePopup();
-    M.emit('home');
-    requestAnimationFrame(UI.layout);
-    setTimeout(UI.layout, 450);
+    show(UI.stack[0], true);
   };
-  UI.refresh = function () { if (UI.cur) { const e = UI.cur.entry; teardown(UI.cur); show(e, true); } };
+  UI.refresh = function () { if (UI.cur) { const e = UI.cur.entry; e.h = UI.h; teardown(UI.cur); show(e, true); } };
+  UI.isRoot = () => UI.stack.length <= 1;
 
   function teardown(cur) {
     cur.alive = false;
@@ -270,104 +277,148 @@
 
   function show(entry, restoring) {
     const v = UI.views[entry.id];
-    app().classList.remove('is-home');
-    UI.sheet.hidden = false;
-    UI.setPill(null);
     const cur = { entry, alive: true, cleanups: [] };
     UI.cur = cur;
+    UI.scroller = UI.body;
+    UI.body.className = 'sheet-body';
+    UI.body.innerHTML = '';
+    UI.body.scrollTop = 0;
+    UI.extra.hidden = true; UI.extra.innerHTML = '';
     const ctx = {
-      params: entry.params, body: UI.body, restoring: !!restoring,
+      params: entry.params, state: entry.state, body: UI.body, restoring: !!restoring,
       alive: () => cur.alive && UI.cur === cur,
       cleanup: (fn) => cur.cleanups.push(fn),
       on: (evt, fn) => cur.cleanups.push(M.on(evt, fn)),
       every: (ms, fn) => { const t = setInterval(() => { if (!document.hidden) fn(); }, ms); cur.cleanups.push(() => clearInterval(t)); },
-      head: (o) => renderHead(o, ctx),
-      open: UI.open, back: UI.back,
-      setSnap: UI.setSnap,
-      state: entry.state || (entry.state = {})
+      head: (o) => renderHead(o || {}, ctx),
+      extra: (html) => { UI.extra.hidden = !html; UI.extra.innerHTML = html || ''; return UI.extra; },
+      flexBody: () => { UI.body.classList.add('flex'); },
+      scroller: (el) => { UI.scroller = el; },
+      setH: (spec) => UI.setH(heightFor(spec)),
+      open: (...a) => UI.open(...a), back: () => UI.back()
     };
-    UI.body.className = 'sheet-body' + (v.noPad ? ' no-pad' : '');
-    UI.body.innerHTML = '';
-    UI.body.scrollTop = 0;
-    renderHead({ title: v.title || '', sub: '' }, ctx);
-    const snap = (restoring && entry.lastSnap) || entry.opts.snap || v.snap || 'half';
-    UI.setSnap(snap);
+    renderHead({ title: v.title || '' }, ctx);
     try { v.render(ctx); } catch (e) { console.error(e); UI.body.appendChild(C.error(e)); }
-    requestAnimationFrame(UI.layout);
+    const target = restoring && entry.h ? entry.h : null;
+    if (target) UI.setH(target);
+    else if (v.height === 'fit') requestAnimationFrame(() => { if (ctx.alive()) UI.setH(heightFor('fit')); });
+    else UI.setH(heightFor(v.height || 0.94));
+    M.emit('view', entry.id);
   }
 
   function renderHead(o, ctx) {
-    const acts = (o.actions || []);
-    UI.head.innerHTML =
-      '<button class="icon-btn flat" data-back aria-label="Zurück">' + M.icon(UI.stack.length > 1 ? 'back' : 'close') + '</button>' +
-      '<div class="sh-titles"><h2>' + M.esc(o.title || '') + '</h2>' + (o.sub ? '<div class="sh-sub">' + o.sub + '</div>' : '') + '</div>' +
-      '<div class="sh-actions">' + acts.map((a, i) => '<button class="icon-btn flat' + (a.on ? ' active' : '') + '" data-act="' + i + '" aria-label="' + M.esc(a.label) + '" title="' + M.esc(a.label) + '">' + M.icon(a.icon) + '</button>').join('') + '</div>';
-    UI.head.querySelector('[data-back]').addEventListener('click', () => UI.back());
-    UI.head.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); acts[+b.dataset.act].onClick(b); }));
+    const root = UI.isRoot();
+    if (o.none) { UI.head.className = 'sheet-head none'; UI.head.innerHTML = ''; return; }
+    UI.head.className = 'sheet-head' + (o.border ? ' border' : '');
+    const acts = o.actions || [];
+    UI.head.innerHTML = (root ? '' : '<button class="back" data-back aria-label="Zurück">' + icon('back') + '</button>') +
+      '<h1' + (o.small ? ' class="sm"' : '') + '>' + esc(o.title || '') + '</h1>' +
+      '<div class="acts">' + acts.map((a, i) => '<button class="act' + (a.on ? ' on' : '') + '" data-act="' + i + '" aria-label="' + esc(a.label) + '" title="' + esc(a.label) + '">' + icon(a.icon) + '</button>').join('') + '</div>';
+    const b = UI.head.querySelector('[data-back]');
+    if (b) b.addEventListener('click', () => UI.back());
+    UI.head.querySelectorAll('[data-act]').forEach((el) => el.addEventListener('click', (e) => { e.stopPropagation(); acts[+el.dataset.act].onClick(el); }));
   }
 
-  /* ---------- Routen-Pille oben ---------- */
-  UI.setPill = function (html, onClick) {
-    const p = $('#routePill');
-    if (!html) { app().classList.remove('show-pill'); p.innerHTML = ''; p.onclick = null; return; }
-    p.innerHTML = html;
-    p.onclick = onClick || null;
-    app().classList.add('show-pill');
-    requestAnimationFrame(() => { if (UI.cur) UI.setSnap(UI.snap, true); UI.layout(); });
-  };
-  UI.routePillHTML = function (from, to, sub) {
-    return '<div class="rp-text"><div class="rp-line"><span class="rp-dot" style="background:var(--primary)"></span>' + M.esc(M.isMe(from) ? 'Mein Standort' : from.name) +
-      '<span style="color:var(--text-3)">' + M.icon('arrow') + '</span><span class="rp-dot" style="background:var(--late)"></span>' + M.esc(to.name) + '</div>' +
-      (sub ? '<div class="rp-sub">' + sub + '</div>' : '') + '</div><span class="icon-btn flat" style="width:34px;height:34px">' + M.icon('search') + '</span>';
-  };
+  /* =====================================================================
+     Gesten: Griff/Kopf ziehen, Inhalt scrollen regelt die Kartenansicht
+     ===================================================================== */
+  function settle(vel, h0) {
+    const max = UI.maxH(), min = UI.minH();
+    if (vel < -0.7) UI.setH(max);
+    else if (vel > 0.7) UI.setH(h0 >= max - 1 ? max * 0.5 : min);
+    if (UI.cur) UI.cur.entry.h = UI.h;
+  }
+  function initGestures() {
+    const sheet = UI.sheet;
+    // 1) Griff, Kopfzeile und Kopfbereich: Zeiger ziehen (Maus & Touch)
+    [UI.grab, UI.head, UI.extra].forEach((el) => {
+      let st = null;
+      el.addEventListener('pointerdown', (e) => {
+        if (e.button > 0 || e.target.closest('button, input, a, select, textarea')) return;
+        st = { y0: e.clientY, h0: UI.h, ly: e.clientY, lt: performance.now(), v: 0, moved: false };
+        try { el.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ }
+      });
+      el.addEventListener('pointermove', (e) => {
+        if (!st) return;
+        const dy = e.clientY - st.y0;
+        if (!st.moved && Math.abs(dy) < 4) return;
+        if (!st.moved) { st.moved = true; UI.dragging = true; sheet.classList.add('dragging'); }
+        const now = performance.now();
+        st.v = (e.clientY - st.ly) / Math.max(1, now - st.lt); st.ly = e.clientY; st.lt = now;
+        UI.setH(st.h0 - dy, false);
+      });
+      const end = () => {
+        if (!st) return;
+        UI.dragging = false; sheet.classList.remove('dragging');
+        if (st.moved) settle(st.v, st.h0);
+        else if (el === UI.grab) UI.setH(UI.h >= UI.maxH() - 1 ? UI.maxH() * 0.5 : UI.maxH());
+        st = null;
+      };
+      el.addEventListener('pointerup', end);
+      el.addEventListener('pointercancel', end);
+    });
 
-  /* ---------- Ziehen des Sheets ---------- */
-  function initDrag() {
-    const grip = $('#sheetGrip'), head = $('#sheetHead'), sheet = $('#sheet');
-    let startY = 0, startH = 0, lastY = 0, lastT = 0, vel = 0, dragging = false;
-    const down = (e) => {
-      if (M.isDesktop() || e.target.closest('button, input, a, select, textarea')) return;
-      dragging = true; startY = lastY = e.clientY; startH = sheet.getBoundingClientRect().height; lastT = performance.now(); vel = 0;
-      sheet.classList.add('dragging');
-      e.currentTarget.setPointerCapture && e.currentTarget.setPointerCapture(e.pointerId);
-    };
-    const move = (e) => {
-      if (!dragging) return;
-      const now = performance.now();
-      vel = (e.clientY - lastY) / Math.max(1, now - lastT);
-      lastY = e.clientY; lastT = now;
-      const h = Math.max(120, Math.min(snapPx('full'), startH - (e.clientY - startY)));
-      sheet.style.height = h + 'px';
-      UI.layout();
-    };
-    const up = () => {
-      if (!dragging) return;
-      dragging = false; sheet.classList.remove('dragging');
-      const h = sheet.getBoundingClientRect().height;
-      const pts = ['peek', 'half', 'full'].map((n) => [n, snapPx(n)]);
-      if (h < snapPx('peek') - 70 && vel > 0.3) { UI.back(); return; }
-      let best = pts[0];
-      if (Math.abs(vel) > 0.45) {
-        // Wischgeste: nächster Punkt in Bewegungsrichtung
-        const dir = vel > 0 ? -1 : 1;
-        const sorted = pts.slice().sort((a, b) => a[1] - b[1]);
-        best = dir > 0 ? (sorted.find((p) => p[1] > h + 10) || sorted[sorted.length - 1]) : (sorted.slice().reverse().find((p) => p[1] < h - 10) || sorted[0]);
-      } else {
-        pts.forEach((p) => { if (Math.abs(p[1] - h) < Math.abs(best[1] - h)) best = p; });
+    // 2) Inhalt: nach oben wischen vergrößert erst das Sheet, ganz oben nach unten wischen verkleinert es
+    let t = null;
+    sheet.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1 || !UI.body.contains(e.target)) { t = null; return; }
+      const y = e.touches[0].clientY;
+      t = { y0: y, ly: y, lt: performance.now(), v: 0, mode: null, sc: UI.scroller, h0: UI.h, s0: 0 };
+    }, { passive: true });
+    sheet.addEventListener('touchmove', (e) => {
+      if (!t) return;
+      const y = e.touches[0].clientY, dy = y - t.y0;
+      if (!t.mode) {
+        if (Math.abs(dy) < 6) return;
+        const max = UI.maxH();
+        const inHScroll = e.target.closest('.chips, .opts, .hist, .tabs');
+        if (inHScroll && Math.abs(dy) < 14) return;
+        if (dy < 0 && UI.h < max - 1) t.mode = 'sheet';
+        else if (dy > 0 && t.sc.scrollTop <= 0) t.mode = 'sheet';
+        else t.mode = 'scroll';
+        if (t.mode === 'sheet') { t.y0 = y; t.h0 = UI.h; t.s0 = t.sc.scrollTop; UI.dragging = true; sheet.classList.add('dragging'); }
       }
-      if (UI.cur) UI.cur.entry.lastSnap = best[0];
-      UI.setSnap(best[0]);
+      if (t.mode !== 'sheet') return;
+      e.preventDefault();
+      const now = performance.now();
+      t.v = (y - t.ly) / Math.max(1, now - t.lt); t.ly = y; t.lt = now;
+      const max = UI.maxH();
+      let h = t.h0 - (y - t.y0);
+      if (h > max) { t.sc.scrollTop = t.s0 + (h - max); h = max; }
+      UI.setH(h, false);
+    }, { passive: false });
+    const tEnd = () => {
+      if (t && t.mode === 'sheet') { UI.dragging = false; sheet.classList.remove('dragging'); settle(t.v, t.h0); }
+      t = null;
     };
-    [grip, head].forEach((el) => {
-      el.addEventListener('pointerdown', down);
-      el.addEventListener('pointermove', move);
-      el.addEventListener('pointerup', up);
-      el.addEventListener('pointercancel', up);
-    });
-    grip.addEventListener('click', () => {
-      if (!UI.cur) return;
-      const next = UI.snap === 'full' ? 'half' : UI.snap === 'half' ? 'full' : 'half';
-      UI.cur.entry.lastSnap = next; UI.setSnap(next);
-    });
+    sheet.addEventListener('touchend', tEnd);
+    sheet.addEventListener('touchcancel', tEnd);
+
+    // 3) Mausrad/Trackpad: gleiches Verhalten am Desktop
+    sheet.addEventListener('wheel', (e) => {
+      if (!UI.body.contains(e.target) && !UI.head.contains(e.target) && !UI.grab.contains(e.target)) return;
+      if (e.ctrlKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      const max = UI.maxH(), sc = UI.scroller;
+      if (e.deltaY > 0 && UI.h < max - 1) { e.preventDefault(); UI.setH(UI.h + e.deltaY, false); }
+      else if (e.deltaY < 0 && sc.scrollTop <= 0 && UI.h > UI.minH()) { e.preventDefault(); UI.setH(UI.h + e.deltaY, false); }
+      if (UI.cur) UI.cur.entry.h = UI.h;
+    }, { passive: false });
+  }
+
+  /* iOS/Android: Bildschirmtastatur – Sheet bleibt darüber (visualViewport) */
+  function initKeyboard() {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+      const val = kb > 80 ? kb : 0;
+      if (val === (UI.kb || 0)) return;
+      UI.kb = val;
+      document.documentElement.style.setProperty('--kb', val + 'px');
+      UI.setH(val ? UI.maxH() : (UI.cur && UI.cur.entry.h) || UI.h, false);
+    };
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    document.addEventListener('focusout', () => setTimeout(() => { if (!UI.kb) window.scrollTo(0, 0); }, 120));
   }
 })(window.Muvit = window.Muvit || {});

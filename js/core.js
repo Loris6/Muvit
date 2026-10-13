@@ -25,6 +25,13 @@
     ]
   };
 
+  /** Stadtgebiet für Live-Fahrzeuge und Linienliste: Magdeburg, sonst ca. 18 × 18 km um den Punkt */
+  M.cityBox = function (lat, lon) {
+    const B = M.CONFIG.mdBBox;
+    if (lat > B.minLat - 0.15 && lat < B.maxLat + 0.15 && lon > B.minLon - 0.22 && lon < B.maxLon + 0.22) return Object.assign({ name: 'Magdeburg' }, B);
+    return { name: '', minLat: lat - 0.08, maxLat: lat + 0.08, minLon: lon - 0.13, maxLon: lon + 0.13 };
+  };
+
   /* ---------------- Events ---------------- */
   const listeners = {};
   M.on = function (evt, fn) { (listeners[evt] = listeners[evt] || []).push(fn); return () => M.off(evt, fn); };
@@ -197,28 +204,37 @@
 
   /* ---------------- Verkehrsmittel & Farben ---------------- */
   M.MODES = {
-    tram: { label: 'Straßenbahn', short: 'Tram', icon: 'tram', color: '#E4002B' },
-    bus: { label: 'Bus', short: 'Bus', icon: 'bus', color: '#8E3FD8' },
-    sbahn: { label: 'S-Bahn', short: 'S-Bahn', icon: 'train', color: '#008D4F' },
-    regio: { label: 'Regionalzug', short: 'Regio', icon: 'train', color: '#E2001A' },
-    fern: { label: 'Fernverkehr', short: 'Fern', icon: 'train', color: '#262A36' },
-    ubahn: { label: 'U-Bahn', short: 'U-Bahn', icon: 'subway', color: '#0065AE' },
-    ferry: { label: 'Fähre', short: 'Fähre', icon: 'ferry', color: '#0091C7' },
-    walk: { label: 'Fußweg', short: 'zu Fuß', icon: 'walk', color: '#8C92A7' },
-    bike: { label: 'Fahrrad', short: 'Rad', icon: 'bike', color: '#13A89E' },
-    other: { label: 'Verkehrsmittel', short: 'Sonst.', icon: 'route', color: '#5B45FF' }
+    tram: { label: 'Straßenbahn', short: 'Tram', badge: 'Tram', icon: 'tram', color: '#BA2619' },
+    bus: { label: 'Bus', short: 'Bus', badge: 'Bus', icon: 'bus', color: '#4B1C76' },
+    sbahn: { label: 'S-Bahn', short: 'S-Bahn', badge: 'S', icon: 'train', color: '#000000' },
+    regio: { label: 'Regionalzug', short: 'Zug', badge: 'RE', icon: 'train', color: '#DE6459' },
+    fern: { label: 'Fernverkehr', short: 'Fernzug', badge: 'IC', icon: 'train', color: '#BA2619' },
+    ubahn: { label: 'U-Bahn', short: 'U-Bahn', badge: 'U', icon: 'subway', color: '#1D4F9C' },
+    ferry: { label: 'Fähre', short: 'Fähre', badge: 'Fähre', icon: 'ferry', color: '#1C7FB0' },
+    walk: { label: 'Fußweg', short: 'zu Fuß', badge: '', icon: 'walk', color: '#7A7A7E' },
+    bike: { label: 'Fahrrad', short: 'Rad', badge: '', icon: 'bike', color: '#7A7A7E' },
+    other: { label: 'Verkehrsmittel', short: 'Linie', badge: '', icon: 'route', color: '#59639F' }
   };
   M.modeInfo = (k) => M.MODES[k] || M.MODES.other;
+  /** Schienenverkehr hält an Gleisen, Tram und Bus an Bahnsteigen (Bstg.) */
+  M.isRail = (mode) => mode === 'sbahn' || mode === 'regio' || mode === 'fern' || mode === 'ubahn';
+  /** Zug der Deutschen Bahn? (ohne Betreiberangabe: Fernverkehr und Regio meist DB) */
+  M.isDBLine = function (line) {
+    if (!line || (line.mode !== 'regio' && line.mode !== 'fern')) return false;
+    const a = String(line.agency || '');
+    return !a || /\bDB\b|Deutsche Bahn/i.test(a);
+  };
 
-  const PALETTE = ['#E4002B', '#F28C00', '#0098D8', '#6DAE1F', '#9B30D9', '#E6007E', '#00877A', '#C2185B',
-    '#1565C0', '#E0A100', '#00B4D8', '#7CB342', '#5E35B1', '#D84315', '#2E7D32', '#AD1457'];
+  // Linienfarben der MVB Magdeburg (aus den Referenzbildern gemessen)
+  const MVB_TRAM = { '1': '#A42D51', '2': '#59639F', '3': '#EAD248', '4': '#8EC33B', '5': '#AF843F', '6': '#663C88', '8': '#D9762F', '9': '#2C6352', '10': '#2C93B8' };
+  const BUS_LINE = '#3A3F37', BUS_REPLACEMENT = '#BA2715';
+  const PALETTE = ['#A42D51', '#59639F', '#8EC33B', '#AF843F', '#663C88', '#2C6352', '#D9762F', '#2C93B8', '#B8456E', '#4E7A3A'];
   function hash(s) { let x = 7; for (let i = 0; i < s.length; i++) x = (x * 31 + s.charCodeAt(i)) | 0; return Math.abs(x); }
   function validHex(c) {
     if (!c) return null;
     c = String(c).trim().replace(/^#/, '');
     if (!/^[0-9a-f]{6}$/i.test(c)) return null;
     c = '#' + c.toUpperCase();
-    // reines Weiß/Schwarz aus Feeds ist meist "keine Farbe"
     return c === '#FFFFFF' || c === '#000000' ? null : c;
   }
   M.luminance = function (hex) {
@@ -226,19 +242,29 @@
     const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
     return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
   };
-  M.textOn = (hex) => (M.luminance(hex) > 0.42 ? '#111322' : '#FFFFFF');
-  /** Linienfarbe: Feed-Farbe > Verkehrsmittel-Farbe (Bahn) > stabile Palette */
-  M.lineColor = function (name, mode, feedColor, feedText) {
+  M.textOn = (hex) => (M.luminance(hex) > 0.6 ? '#131418' : '#FFFFFF');
+  /** Farbe der Haltestellenpunkte auf einer Linie: weiß, auf hellen Linien (z. B. Tram 3, gelb) schwarz */
+  M.stopDotColor = (hex) => (/^#[0-9a-f]{6}$/i.test(hex || '') && M.luminance(hex) > 0.55 ? '#000000' : '#FFFFFF');
+  /** Linienfarbe im MVB-Stil: Trams farbig (eckig), Busse dunkel (rund), Züge nach Produkt */
+  M.lineColor = function (name, mode, feedColor) {
+    const n = String(name || '').trim();
+    if (mode === 'tram' && MVB_TRAM[n]) return { bg: MVB_TRAM[n], fg: '#FFFFFF' };
+    if (mode === 'bus') return { bg: /^(SEV|EV)/i.test(n) || n === '48' ? BUS_REPLACEMENT : BUS_LINE, fg: '#FFFFFF' };
+    if (mode === 'sbahn') return { bg: validHex(feedColor) || '#008D4F', fg: '#FFFFFF' };
+    if (mode === 'regio') return { bg: '#DE6459', fg: '#FFFFFF' };
+    if (mode === 'fern') return { bg: '#FFFFFF', fg: '#BA2619' };
     const c = validHex(feedColor);
-    if (c) return { bg: c, fg: validHex(feedText) || M.textOn(c) };
-    if (mode === 'fern' || mode === 'regio' || mode === 'sbahn' || mode === 'ubahn' || mode === 'ferry') {
-      const bg = M.modeInfo(mode).color; return { bg, fg: M.textOn(bg) };
-    }
-    const key = String(name || '?');
-    const num = parseInt(key.replace(/\D+/g, ''), 10);
-    const idx = !isNaN(num) && /^\D{0,3}\d+$/.test(key) ? (mode === 'bus' ? num * 7 + 3 : num) : hash(key + mode);
-    const bg = PALETTE[idx % PALETTE.length];
-    return { bg, fg: M.textOn(bg) };
+    if (c) return { bg: c, fg: M.textOn(c) };
+    const num = parseInt(n.replace(/\D+/g, ''), 10);
+    const bg = PALETTE[(isNaN(num) ? hash(n + mode) : num) % PALETTE.length];
+    return { bg, fg: '#FFFFFF' };
+  };
+  /** Farbe für Linienverläufe auf der (hellen) Karte */
+  M.routeColor = function (line) {
+    if (!line) return '#7A7A7E';
+    if (line.mode === 'fern') return '#BA2619';
+    if (line.mode === 'bus' && line.color === BUS_LINE) return '#4B1C76';
+    return line.color;
   };
 
   /* ---------------- Toasts ---------------- */
@@ -296,7 +322,7 @@
 
   /* ---------------- App-Zustand ---------------- */
   M.state = {
-    from: M.MY_LOCATION,
+    from: null,      // leer = Platzhalter; bei der Suche wird „Mein Standort“ genutzt
     to: null,
     via: [],          // [{ place, stay }]
     time: null,       // null = jetzt
