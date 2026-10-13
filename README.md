@@ -10,14 +10,20 @@ Die Karte liegt immer im Hintergrund. Alle Inhalte stecken in einem dunklen Shee
 |---|---|
 | **Startframe** | „Wo geht's hin?“ mit Start/Ziel und Tauschen, sechs Schnellzugriffe (Abfahrten, Verkehrsmelder, Abonnements, Netzplan, Ticket kaufen, Assistance) und Verlauf |
 | **Karte** | MapLibre GL mit OpenFreeMap (Hell/Dunkel); Haltestellen als „H“-Schild (Zeichen 224). Ein Tipp auf eine Haltestelle öffnet direkt ihre Abfahrten. Standort mit Genauigkeitskreis; langes Drücken auf die Karte öffnet „Von hier / Nach hier / Haltestellen“ |
-| **Live-Karte** | Alle Straßenbahnen, Busse und Züge der ganzen Stadt in Echtzeit, flüssig entlang der Strecke animiert. Jedes Fahrzeug trägt sein Verkehrsmittel-Zeichen wie an der Haltestelle: „Tram“ als rotes Quadrat, „Bus“ als lila Kreis (beide 1:1), S-Bahn-Logo, DB-Logo für DB-Züge, sonst Zug-Piktogramm, dazu die Liniennummer |
+| **Live-Karte** | Alle Straßenbahnen, Busse und Züge der ganzen Stadt in Echtzeit, flüssig entlang der Strecke animiert. Trams und Busse zeigen auf der Karte nur ihre Liniennummer, Züge zusätzlich das S-Bahn- bzw. DB-Logo. Weit herausgezoomt zeigt die Karte die Züge in ganz Deutschland |
 | **Verbindungen** | Echtzeit-Routing mit Verspätungen und Gleisen. Die Karten zeigen eine proportionale Linien-Leiste und Badges wie „Schnellste“ oder „Wenigste Umstiege“. „Früher/Später“, Filter für das Deutschlandticket, bis zu 2 Zwischenhalte mit Mindestaufenthalt |
 | **Verbindung** | Zeitstrahl in Linienfarben mit Gleis, Verspätung, aufklappbaren Zwischenhalten, Fußwegen, Hinweisen/Störungen, Tarif-Einschätzung, DB-Live-Preis, Teilen und Merken |
-| **Abfahrten / Haltestelle** | Suche nach Haltestelle oder Linie, Tabs Verlauf/Favoriten/In der Nähe. Die Haltestellenansicht zeigt eine Echtzeit-Abfahrtstafel mit Countdown, Status (pünktlich, früher, verspätet, fällt aus), Bahnsteig (Bstg.) bei Tram und Bus bzw. Gleis bei Zügen (Gleiswechsel rot hinterlegt) und Filter nach Verkehrsmittel. Unter jeder Linie stehen bei Bedarf Hinweise wie „Baustellenbedingte Umleitung“ oder „fährt weiter als [Tram][3]“ |
+| **Abfahrten / Haltestelle** | Suche nach Haltestelle oder Linie, Tabs Verlauf/Favoriten/In der Nähe. Die Haltestellenansicht zeigt eine Echtzeit-Abfahrtstafel mit Countdown, Status (pünktlich, früher, verspätet, fällt aus), Bahnsteig (Bstg.) bei Tram und Bus bzw. Gleis bei Zügen (Gleiswechsel rot hinterlegt) und Filter nach Verkehrsmittel. Unter jeder Linie stehen bei Bedarf Hinweise wie „Baustellenbedingte Umleitung“, „Fährt weiter als [Tram][13] nach Sudenburg“ oder „Kommt als [Tram][2] aus …“ |
 | **In der Nähe** | Haltestellen im Umkreis mit selbst berechneter Entfernung (Haversine ab Geräteposition), Gehzeit und Himmelsrichtung, dazu eine Vorschau der nächsten Abfahrten |
-| **Fahrtverlauf & Netzplan** | Ein Tipp auf eine Linie öffnet den Fahrtverlauf mit allen Halten, Echtzeit und Live-Position auf der Karte. Die Linie ist durchgehend in Linienfarbe mit Haltestellenpunkten (weiß, bei hellen Linien wie Tram 3 schwarz). Der Netzplan zeigt die ganze Stadt und listet alle Linien der Stadt |
+| **Fahrtverlauf & Netzplan** | Ein Tipp auf eine Linie öffnet den Fahrtverlauf mit allen Halten, Echtzeit und Live-Position auf der Karte. Die Linie ist durchgehend in Linienfarbe, weiß umrandet, mit Haltestellenpunkten (weiß, bei hellen Linien wie Tram 3 schwarz). Fährt das Fahrzeug als andere Linie weiter, folgt nach einer Lücke deren Verlauf in ihrer Farbe. Der Netzplan zeigt die ganze Stadt und listet alle Linien einschließlich der Nachtlinien |
 | **Tickets & Preise** | marego/MVB-Tarife und Deutschlandticket (Stand 08/2026), Preisermittlung für eine Strecke, DB-Preise live |
 | **Assistance (Muvit KI)** | Claude (Anthropic) mit Tool-Use auf echte Daten: Routen von A nach B (auch über C mit XX Min Aufenthalt), Abfahrten, Linien, Tarife, DB-Preise und Haltestellen in der Nähe. Mit Streaming und Spracheingabe. Ohne API-Schlüssel beantwortet ein Basis-Modus typische Fragen |
+
+Muvit ist eine App für Magdeburg: Haltestellen und Orte erscheinen ohne den Zusatz „Magdeburg“, also „Sudenburg“ statt „Magdeburg, Sudenburg“. Orte außerhalb behalten ihren Ortsnamen, Züge in ganz Deutschland werden weiterhin angezeigt.
+
+### Durchläufer („fährt weiter als …“)
+
+Die Fahrplandaten enthalten nicht direkt, ob ein Fahrzeug als andere Linie weiterfährt. Muvit erkennt das so: Endet eine Fahrt, sucht Muvit an der Endhaltestelle eine andere Linie desselben Verkehrsmittels, die dort beginnt und kurz danach (bis 12 Minuten) am selben Bahnsteig abfährt. Für „kommt als …“ gilt das umgekehrt. Hinweise aus den Störungsmeldungen werden zusätzlich ausgewertet.
 
 ## Datenquellen (echte APIs)
 

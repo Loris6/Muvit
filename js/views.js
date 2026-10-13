@@ -27,6 +27,7 @@
   }
   /** Linien einer Haltestelle nachladen und in die Zeile schreiben */
   async function fillLines(ctx, stops) {
+    fillAreas(ctx, stops);
     for (let i = 0; i < stops.length && i < 8; i++) {
       const s = stops[i];
       if (M.linesForStop(s.name).length) continue;
@@ -37,6 +38,20 @@
         const area = box.querySelector('.area');
         box.innerHTML = C.stopLines(M.linesForStop(s.name)) + (area ? area.outerHTML : '');
       }
+    }
+  }
+
+  /** Stadtteil statt „Magdeburg“ (z. B. „Sudenburg“) – wird bei Bedarf nachgeschlagen */
+  async function fillAreas(ctx, stops) {
+    for (let i = 0; i < stops.length && i < 12; i++) {
+      const s = stops[i];
+      if (s.area || s.lat == null) continue;
+      const d = await M.Transit.district(s).catch(() => '');
+      if (!ctx.alive()) return;
+      if (!d) continue;
+      s.area = d;
+      const el = ctx.body.querySelector('[data-area="' + i + '"]');
+      if (el) el.textContent = '• ' + d;
     }
   }
 
@@ -104,7 +119,7 @@
         return list.map((x, k) => {
           const i = startIdx + k;
           if (x.type === 'stop') return C.stopRow(x, i, { star: false, end: x.distance != null ? M.fmtDist(x.distance) : (M.Geo.pos ? M.fmtDist(M.dist(M.Geo.pos.lat, M.Geo.pos.lon, x.lat, x.lon)) : '') });
-          return C.lrow({ icon: x.type === 'address' ? 'pin' : 'flag', white: true, title: esc(x.name), sub: esc(sub ? sub(x) : (x.area || '')), chev: false, end: M.Geo.pos ? M.fmtDist(M.dist(M.Geo.pos.lat, M.Geo.pos.lon, x.lat, x.lon)) : '' }, i);
+          return C.lrow({ icon: x.type === 'address' ? 'pin' : 'flag', white: true, title: esc(M.localName(x.name)), sub: esc(sub ? sub(x) : M.localArea(x.area || '')), chev: false, end: M.Geo.pos ? M.fmtDist(M.dist(M.Geo.pos.lat, M.Geo.pos.lon, x.lat, x.lon)) : '' }, i);
         }).join('');
       }
       function bind(all) {
@@ -514,17 +529,14 @@
       if (p.line) ctx.extra('<div class="trip-head">' + C.badges(p.line) + '<span class="to">-&gt; …</span></div>');
       ctx.body.innerHTML = C.skel(7);
 
-      function draw() {
-        const t = st.trip, now = Date.now();
-        ctx.extra('<div class="trip-head">' + C.badges(t.line) + '<span class="to">-&gt; ' + esc(t.headsign) + '</span></div>' + (viaText(t) ? '<div class="trip-via">' + esc(viaText(t)) + '</div>' : ''));
+      /** Halte einer Fahrt als Zeitstrahl in Linienfarbe (weiß umrandet) */
+      function partHTML(t, pi, now) {
         const T = t.stops.map(stopTimes);
         let next = T.findIndex((x, i) => (i === T.length - 1 ? x.a : x.d) >= now - 20000);
         if (next < 0) next = T.length;
         const c = M.routeColor(t.line);
         const wc = t.wheelchair ? ' • ' + icon('wheel') : '';
-        const at = t.stops[Math.min(next, t.stops.length - 1)];
-        const info = C.infoLines({ alerts: t.alerts, notes: t.notes, line: t.line, stop: at }, 0, { max: 3 });
-        let h = (info ? '<div class="trip-info">' + info + '</div>' : '') + '<div class="trip-list" style="--c:' + c + ';--dc:' + M.stopDotColor(c) + '">';
+        let h = '<div class="trip-list" style="--c:' + c + ';--dc:' + M.stopDotColor(c) + '">';
         t.stops.forEach((s, i) => {
           const past = i < next, isNext = i === next;
           const tm = i === t.stops.length - 1 ? (s.arr || s.dep) : (s.dep || s.arr);
@@ -543,29 +555,59 @@
             a = '<span class="' + (s.cancelled ? 'c-red' : mins <= 3 ? 'c-orange' : 'c-green') + '">' + (mins <= 0 ? 'Jetzt' : 'In ' + mins + ' Min') + '</span>';
             b = 'Um ' + M.fmtTime(pl || tm) + (d ? '<span class="vsl"> (vsl. ' + M.fmtTime(tm) + ')</span>' : '');
           }
-          const up = i > 0 ? '<span class="rail up' + (i <= next ? ' done' : '') + '"></span>' : '';
-          const dn = i < t.stops.length - 1 ? '<span class="rail dn' + (i + 1 <= next ? ' done' : '') + '"></span>' : '';
+          const up = i > 0 ? '<span class="rail up"></span>' : '';
+          const dn = i < t.stops.length - 1 ? '<span class="rail dn"></span>' : '';
           const big = isNext || i === 0 || i === t.stops.length - 1;
-          h += '<button class="trow' + (past ? ' past' : '') + (isNext ? ' next' : '') + '" data-i="' + i + '">' + up + dn + '<span class="dot' + (big ? ' big' : '') + '"></span>' +
+          h += '<button class="trow' + (past ? ' past' : '') + (isNext ? ' next' : '') + '" data-p="' + pi + '" data-i="' + i + '">' + up + dn + '<span class="dot' + (big ? ' big' : '') + '"></span>' +
             '<div style="min-width:0"><div class="nm"><span>' + esc(s.name) + '</span>' + (!past ? C.bstg(s.platform, t.line.mode, s.plannedPlatform) : '') + '</div><div class="ss">' + ss + '</div></div>' +
             '<div class="r"><div class="a">' + a + '</div><div class="b">' + b + '</div></div></button>';
         });
-        h += '</div>';
-        if (t.continues) h += '<div class="trip-info cont"><div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">Das Fahrzeug fährt ab ' + esc(t.continues.at) + ' weiter als <span class="ref">' + C.badges(t.continues.line, { sm: true }) + '</span> nach ' + esc(t.continues.headsign) + '</span><span></span></div></div>';
+        return { html: h + '</div>', next };
+      }
+      function draw() {
+        const t = st.trip, now = Date.now();
+        ctx.extra('<div class="trip-head">' + C.badges(t.line) + '<span class="to">-&gt; ' + esc(t.headsign) + '</span></div>' + (viaText(t) ? '<div class="trip-via">' + esc(viaText(t)) + '</div>' : ''));
+        const main = partHTML(t, 0, now);
+        const at = t.stops[Math.min(main.next, t.stops.length - 1)];
+        const info = C.infoLines({ alerts: t.alerts, notes: t.notes, line: t.line, stop: at }, 0, { max: 3 });
+        let h = (info ? '<div class="trip-info">' + info + '</div>' : '') + main.html;
+        const parts = [t];
+        if (st.next && st.next.stops && st.next.stops.length) {
+          // Durchläufer: Lücke, Hinweis und der weitere Verlauf in der Farbe der neuen Linie
+          const n = st.next, ni = st.nextInfo || {};
+          parts.push(n);
+          h += '<div class="trip-gap"><div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">Fährt' + (ni.at || n.stops[0].name ? ' ab ' + esc(ni.at || n.stops[0].name) : '') + ' weiter als <span class="ref">' + C.badges(n.line, { sm: true }) + '</span> nach ' + esc(n.headsign || ni.headsign || '') + '</span><span></span></div></div>';
+          h += partHTML(n, 1, now).html;
+        } else if (t.continues) {
+          h += '<div class="trip-gap"><div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">Fährt ab ' + esc(t.continues.at) + ' weiter als <span class="ref">' + C.badges(t.continues.line, { sm: true }) + '</span> nach ' + esc(t.continues.headsign) + '</span><span></span></div></div>';
+        }
         h += '<div class="trip-foot">' + icon('live') + (t.realtime ? 'Echtzeitdaten' : 'Fahrplandaten') + ' · aktualisiert ' + M.fmtTime(st.updated || new Date()) + '</div>';
         const keep = ctx.body.scrollTop;
         ctx.body.innerHTML = h;
         ctx.body.scrollTop = keep;
         bindAll(ctx.body, '.trow', (el) => {
-          const s = t.stops[+el.dataset.i];
-          UI.open('stop', { stop: { id: s.id, name: s.name, lat: s.lat, lon: s.lon, type: 'stop', src: t.src } });
+          const pt = parts[+el.dataset.p] || t, s = pt.stops[+el.dataset.i];
+          UI.open('stop', { stop: { id: s.id, name: s.name, lat: s.lat, lon: s.lon, type: 'stop', src: pt.src || t.src } });
         });
         if (!st.scrolled) {
           st.scrolled = true;
-          const target = ctx.body.querySelector('.trow[data-i="' + (next - 2) + '"]');
-          if (target && next > 3) setTimeout(() => { if (ctx.alive()) ctx.body.scrollTop = target.offsetTop; }, 60);
+          const target = ctx.body.querySelector('.trow[data-p="0"][data-i="' + (main.next - 2) + '"]');
+          if (target && main.next > 3) setTimeout(() => { if (ctx.alive()) ctx.body.scrollTop = target.offsetTop; }, 60);
         }
         placeVehicle();
+      }
+      /** Fährt das Fahrzeug danach als andere Linie weiter? Dann den weiteren Verlauf anhängen. */
+      async function loadNext() {
+        const t = st.trip;
+        if (!t || st.nextTried === t.tripId) return;
+        st.nextTried = t.tripId;
+        if (t.next && t.next.stops && t.next.stops.length) { st.next = t.next; st.nextInfo = t.continues; draw(); return; }
+        const c = await M.Transit.continuation({ tripId: t.tripId, src: t.src, line: t.line });
+        if (!c || !c.tripId || !ctx.alive()) return;
+        const t2 = await M.Transit.trip(c.tripId, c.src || 'motis').catch(() => null);
+        if (!t2 || !ctx.alive()) return;
+        st.next = t2; st.nextInfo = c;
+        draw();
       }
       function placeVehicle() {
         const t = st.trip; if (!t) return;
@@ -581,6 +623,7 @@
           st.trip = t; st.updated = new Date(); idxs = null;
           M.Map.drawTrip(t, { fit: first || manual });
           draw();
+          loadNext();
           if (manual) M.toast('Fahrtverlauf aktualisiert');
         } catch (e) {
           if (!ctx.alive()) return;
@@ -610,10 +653,10 @@
       });
       head();
       st.off = st.off || [];
-      const area = stop.area || (M.inMagdeburg(stop.lat, stop.lon) ? 'Magdeburg' : '');
+      const area = M.localArea(stop.area || '');
       ctx.body.innerHTML =
-        '<div class="st-title">' + icon('hOutline', 'h') + '<h2>' + esc(stop.name) + '</h2><span data-wc></span></div>' +
-        (area ? '<div class="st-area">' + esc(area) + '</div>' : '') +
+        '<div class="st-title">' + icon('hOutline', 'h') + '<h2>' + esc(M.localName(stop.name)) + '</h2><span data-wc></span></div>' +
+        '<div class="st-area" data-starea>' + esc(area) + '</div>' +
         '<div class="st-btns"><button class="btn-o" data-alerts>' + icon('infoFill', 'yel') + 'Störungen</button></div>' +
         '<div data-alertbox></div>' +
         '<h3 class="h2">Abfahrten</h3><div class="chips" data-chips></div><div class="hr"></div>' +
@@ -622,6 +665,22 @@
       M.Map.addStops([{ id: stop.id, name: stop.name, lat: stop.lat, lon: stop.lon, src: stop.src }]);
       M.Map.flyTo(stop.lat, stop.lon, 16.2);
       const listBox = M.$('[data-list]', ctx.body), chips = M.$('[data-chips]', ctx.body);
+      if (!area) M.Transit.district(stop).then((d) => { const el = ctx.alive() && M.$('[data-starea]', ctx.body); if (el && d) el.textContent = d; });
+      // Durchläufer („kommt als“ / „fährt weiter als“) für die nächsten Trams und Busse ermitteln
+      let drawPending = false;
+      const redraw = (v) => { if (!v || drawPending) return; drawPending = true; requestAnimationFrame(() => { drawPending = false; if (ctx.alive()) draw(); }); };
+      function through(list) {
+        let n = 0;
+        list.forEach((x) => {
+          const c = M.Transit.known('c|' + x.tripId), k = M.Transit.known('k|' + x.tripId);
+          if (c) x.cont = c;
+          if (k) x.comes = k;
+          if (n >= 6 || x.cancelled || !(x.line.mode === 'tram' || x.line.mode === 'bus')) return;
+          n++;
+          if (c === undefined) M.Transit.continuation(x).then(redraw);
+          if (k === undefined) M.Transit.comesAs(x).then(redraw);
+        });
+      }
       const MODE_TXT = { tram: 'TRAM', bus: 'BUS', sbahn: 'S-BAHN', regio: 'ZUG', fern: 'FERNZUG', ubahn: 'U-BAHN', ferry: 'FÄHRE' };
 
       function draw() {
@@ -632,6 +691,7 @@
         chips.innerHTML = modes.map((m) => '<button class="chip' + (st.off.includes(m) ? ' off' : '') + '" data-m="' + m + '">' + C.modeBadge(m) + (MODE_TXT[m] || m.toUpperCase()) + '</button>').join('');
         bindAll(chips, '[data-m]', (b) => { const m = b.dataset.m; st.off = st.off.includes(m) ? st.off.filter((x) => x !== m) : st.off.concat(m); draw(); });
         const shown = all.filter((x) => !st.off.includes(x.line.mode));
+        through(shown);
         listBox.innerHTML = shown.length ? shown.map((x, i) => C.depRow(x, i)).join('') : C.empty('Keine Abfahrten', 'In nächster Zeit fährt hier nichts ab.');
         bindAll(listBox, '.dep', (b) => { const x = shown[+b.dataset.i]; UI.open('trip', { tripId: x.tripId, src: x.src, line: x.line, focusStop: stop.name }); });
         bindAll(listBox, '.alert-line[data-alert]', (b) => {
@@ -935,15 +995,16 @@
         return Array.from(out.values());
       }
       const box = M.$('[data-list]', ctx.body);
-      const ORDER = { tram: 0, bus: 1, sbahn: 2, ubahn: 3, regio: 4, fern: 5, ferry: 6, other: 7 };
+      const ORDER = { tram: 0, bus: 1, night: 2, sbahn: 3, ubahn: 4, regio: 5, fern: 6, ferry: 7, other: 8 };
+      const group = (l) => (M.isNight(l) ? 'night' : l.mode);
       function draw() {
-        const L = (st.lines || []).concat(liveOnly()).sort((a, b) => ((ORDER[a.line.mode] ?? 9) - (ORDER[b.line.mode] ?? 9)) || a.line.name.localeCompare(b.line.name, 'de', { numeric: true }));
+        const L = (st.lines || []).concat(liveOnly()).sort((a, b) => ((ORDER[group(a.line)] ?? 9) - (ORDER[group(b.line)] ?? 9)) || a.line.name.localeCompare(b.line.name, 'de', { numeric: true }));
         const t = M.$('[data-ltitle]', ctx.body);
         if (t) t.textContent = 'Alle Linien' + (st.area ? ' in ' + st.area : '') + (L.length ? ' (' + L.length + ')' : '');
         if (!L.length) { box.innerHTML = st.loading ? C.skel(6) : C.empty('Keine Linien gefunden', 'Bewege die Karte in ein anderes Gebiet.'); return; }
         let h = '', mode = null;
         L.forEach((x, i) => {
-          if (x.line.mode !== mode) { mode = x.line.mode; h += '<div class="lbl" style="padding-top:16px">' + M.modeInfo(mode).label + '</div>'; }
+          if (group(x.line) !== mode) { mode = group(x.line); h += '<div class="lbl" style="padding-top:16px">' + (mode === 'night' ? 'Nachtlinien' : M.modeInfo(mode).label) + '</div>'; }
           const sub = x.next ? 'Nächste Abfahrt ' + esc(C.countdown(x.next.time).toLowerCase()) + ' ab ' + esc(x.next.stop.name) : 'Gerade unterwegs';
           h += C.lrow({ cls: 'lines', lead: C.badges(x.line), title: esc(x.headsigns.slice(0, 2).join(' – ') || M.modeInfo(x.line.mode).label + ' ' + x.line.name), sub }, i);
         });
