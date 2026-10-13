@@ -96,7 +96,7 @@
   function guessMode(num, ctxLine, stopName) {
     const known = stopName ? M.linesForStop(stopName).find((l) => l.name === num) : null;
     if (known) return known.mode;
-    if (ctxLine && (ctxLine.mode === 'tram' || ctxLine.mode === 'bus')) return /^\d+$/.test(num) && +num <= 12 ? 'tram' : 'bus';
+    if (ctxLine && (ctxLine.mode === 'tram' || ctxLine.mode === 'bus')) return M.isMvbTram(num) ? 'tram' : 'bus';
     return ctxLine ? ctxLine.mode : 'bus';
   }
   C.richText = function (text, ctxLine, stopName) {
@@ -118,9 +118,13 @@
     (x.alerts || []).slice(0, o.max || 2).forEach((a, k) => {
       h += '<button class="alert-line" data-alert="' + i + ':' + k + '">' + icon('warnFill', 'w') + '<span class="tx">' + C.richText(a.title, x.line, at) + '</span><span class="chev">' + (a.text ? icon('right') : '') + '</span></button>';
     });
-    (x.notes || []).slice(0, 2).forEach((n) => {
-      h += '<div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">' + C.richText(n.text, x.line, at) + '</span><span></span></div>';
-    });
+    const note = (html) => '<div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">' + html + '</span><span></span></div>';
+    // Textnotizen zu Durchläufern nicht doppelt zeigen, wenn die Weiterfahrt schon erkannt ist
+    (x.notes || []).filter((n) => !(x.cont && /weiter\s+als/i.test(n.text)) && !(x.comes && /kommt\s+als/i.test(n.text))).slice(0, 2)
+      .forEach((n) => { h += note(C.richText(n.text, x.line, at)); });
+    // Durchläufer: „Kommt als [Tram][2] aus …“ / „Fährt weiter als [Tram][13] nach …“
+    if (x.comes) h += note('Kommt als <span class="ref">' + C.badges(x.comes.line, { sm: true }) + '</span>' + (x.comes.from ? ' aus ' + esc(x.comes.from) : ''));
+    if (x.cont) h += note('Fährt weiter als <span class="ref">' + C.badges(x.cont.line, { sm: true }) + '</span>' + (x.cont.headsign ? ' nach ' + esc(x.cont.headsign) : ''));
     return h;
   };
 
@@ -145,10 +149,10 @@
   C.stopRow = function (s, i, o) {
     o = o || {};
     const lines = s.lines || M.linesForStop(s.name);
-    const area = o.area != null ? o.area : (s.area || (s.lat != null && M.inMagdeburg(s.lat, s.lon) ? 'Magdeburg' : ''));
+    const area = M.localArea(o.area != null ? o.area : (s.area || ''));
     return '<div class="stop-row" data-i="' + i + '" role="button" tabindex="0">' + icon('hOutline', 'h') +
-      '<div style="min-width:0"><div class="nm">' + esc(s.name) + '</div>' +
-      '<div class="ln" data-lines="' + i + '">' + C.stopLines(lines) + (area ? '<span class="area">• ' + esc(area) + '</span>' : '') + '</div></div>' +
+      '<div style="min-width:0"><div class="nm">' + esc(M.localName(s.name)) + '</div>' +
+      '<div class="ln" data-lines="' + i + '">' + C.stopLines(lines) + '<span class="area" data-area="' + i + '">' + (area ? '• ' + esc(area) : '') + '</span>' + '</div></div>' +
       '<div class="end">' + (o.end || '') + (o.star !== false ? '<button class="star' + (M.favs.hasStop(s) ? ' on' : '') + '" data-star="' + i + '" aria-label="Favorit">' + icon(M.favs.hasStop(s) ? 'starFill' : 'star') + '</button>' : '') + '</div></div>';
   };
 

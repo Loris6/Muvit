@@ -25,6 +25,21 @@
     ]
   };
 
+  /** Muvit ist eine Magdeburg-App: „Magdeburg, Sudenburg“ → „Sudenburg“, „Magdeburg Hbf“ → „Hauptbahnhof“.
+      Orte außerhalb (z. B. „Köln Hbf“) bleiben unverändert. */
+  M.localName = function (name) {
+    let n = String(name == null ? '' : name).trim();
+    if (!n || /^magdeburg$/i.test(n)) return n;
+    let m = n.match(/^Magdeburg(?:\s*,\s*|\s*-\s*|\s+)(.+)$/);
+    if (m) n = m[1];
+    else if ((m = n.match(/^(.+?)\s*(?:,\s*Magdeburg|\(Magdeburg\))$/))) n = m[1];
+    else return n;
+    return n.replace(/^Hbf\b/, 'Hauptbahnhof');
+  };
+  M.isMagdeburgName = (v) => /^magdeburg$/i.test(String(v || '').trim());
+  /** „Magdeburg, Sudenburg“ → „Sudenburg“ */
+  M.localArea = (a) => String(a || '').split(',').map((x) => x.trim()).filter((x) => x && !M.isMagdeburgName(x)).join(', ');
+
   /** Stadtgebiet für Live-Fahrzeuge und Linienliste: Magdeburg, sonst ca. 18 × 18 km um den Punkt */
   M.cityBox = function (lat, lon) {
     const B = M.CONFIG.mdBBox;
@@ -222,11 +237,18 @@
   M.isDBLine = function (line) {
     if (!line || (line.mode !== 'regio' && line.mode !== 'fern')) return false;
     const a = String(line.agency || '');
-    return !a || /\bDB\b|Deutsche Bahn/i.test(a);
+    // ohne Betreiberangabe: Fernverkehr ist fast immer DB, im Regionalverkehr gibt es viele Betreiber
+    if (!a) return line.mode === 'fern';
+    return /\bDB\b|Deutsche Bahn/i.test(a);
   };
 
   // Linienfarben der MVB Magdeburg (aus den Referenzbildern gemessen)
-  const MVB_TRAM = { '1': '#A42D51', '2': '#59639F', '3': '#EAD248', '4': '#8EC33B', '5': '#AF843F', '6': '#663C88', '8': '#D9762F', '9': '#2C6352', '10': '#2C93B8' };
+  const MVB_TRAM = { '1': '#A42D51', '2': '#59639F', '3': '#EAD248', '4': '#8EC33B', '5': '#AF843F', '6': '#663C88', '8': '#D9762F', '9': '#2C6352', '10': '#2C93B8', '13': '#191919' };
+  const NIGHT = '#1E3264';
+  /** Straßenbahnlinie der MVB? (für „Linie 13“ in Hinweistexten) */
+  M.isMvbTram = (n) => Object.prototype.hasOwnProperty.call(MVB_TRAM, String(n));
+  /** Nachtlinie (N1, N2 …) */
+  M.isNight = (line) => !!line && /^N\s?\d/i.test(String(line.name || ''));
   const BUS_LINE = '#3A3F37', BUS_REPLACEMENT = '#BA2715';
   const PALETTE = ['#A42D51', '#59639F', '#8EC33B', '#AF843F', '#663C88', '#2C6352', '#D9762F', '#2C93B8', '#B8456E', '#4E7A3A'];
   function hash(s) { let x = 7; for (let i = 0; i < s.length; i++) x = (x * 31 + s.charCodeAt(i)) | 0; return Math.abs(x); }
@@ -248,6 +270,7 @@
   /** Linienfarbe im MVB-Stil: Trams farbig (eckig), Busse dunkel (rund), Züge nach Produkt */
   M.lineColor = function (name, mode, feedColor) {
     const n = String(name || '').trim();
+    if ((mode === 'tram' || mode === 'bus') && /^N\s?\d/i.test(n)) return { bg: validHex(feedColor) || NIGHT, fg: '#FFFFFF' };
     if (mode === 'tram' && MVB_TRAM[n]) return { bg: MVB_TRAM[n], fg: '#FFFFFF' };
     if (mode === 'bus') return { bg: /^(SEV|EV)/i.test(n) || n === '48' ? BUS_REPLACEMENT : BUS_LINE, fg: '#FFFFFF' };
     if (mode === 'sbahn') return { bg: validHex(feedColor) || '#008D4F', fg: '#FFFFFF' };

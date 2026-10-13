@@ -89,7 +89,8 @@
     const numFont = '700 ' + (11 * DPR) + 'px Rubik, system-ui, sans-serif';
     meas.font = numFont;
     const isTrain = mode === 'regio' || mode === 'fern';
-    const modeW = isTrain && op === 'db' ? Math.round(B * 34 / 24) : ['tram', 'bus', 'sbahn', 'ubahn', 'ferry', 'regio', 'fern'].includes(mode) ? B : 0;
+    // Tram und Bus: nur die Liniennummer (kein „Tram“/„Bus“-Zeichen auf der Karte)
+    const modeW = isTrain && op === 'db' ? Math.round(B * 34 / 24) : ['sbahn', 'ubahn', 'ferry', 'regio', 'fern'].includes(mode) ? B : 0;
     const lineW = Math.max(B, Math.ceil(meas.measureText(label).width) + 8 * DPR);
     const W = (modeW ? modeW + gap : 0) + lineW + padP * 2, H = B + padP * 2;
     const c = canvas(W + pad * 2, H + pad * 2), x = c.getContext('2d');
@@ -112,9 +113,7 @@
     };
     const small = '700 ' + (6.6 * DPR) + 'px Rubik, system-ui, sans-serif', big = '700 ' + (13 * DPR) + 'px Rubik, system-ui, sans-serif';
     let X = pad + padP;
-    if (mode === 'tram') badge(X, B, '#BA2619', false, 'Tram', small, '#FFFFFF');
-    else if (mode === 'bus') badge(X, B, '#4B1C76', true, 'Bus', small, '#FFFFFF');
-    else if (mode === 'sbahn') badge(X, B, '#008D4F', true, 'S', big, '#FFFFFF');
+    if (mode === 'sbahn') badge(X, B, '#008D4F', true, 'S', big, '#FFFFFF');
     else if (mode === 'ubahn') badge(X, B, '#115D91', false, 'U', big, '#FFFFFF');
     else if (isTrain && op === 'db') {
       // DB-Logo: weiß, roter Rahmen, rote Buchstaben
@@ -184,7 +183,7 @@
     m.addLayer({ id: 'vehicles', type: 'symbol', source: 'vehicles',
       layout: {
         'icon-image': ['get', 'icon'], 'icon-allow-overlap': true, 'icon-ignore-placement': true,
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 8.5, 0.42, 10, 0.55, 12, 0.72, 14, 0.9, 16, 1],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 5.5, 0.34, 8.5, 0.42, 10, 0.55, 12, 0.72, 14, 0.9, 16, 1],
         'symbol-sort-key': ['get', 'rank']
       } });
     refreshStopsSource();
@@ -403,25 +402,36 @@
     if (!Mp.showVehicles || !Mp.map) return;
     vehTimer = setTimeout(() => fetchVehicles(force), now ? 50 : 30000);
   }
-  /** Abfragegebiet: immer die ganze Stadt (plus Kartenausschnitt, solange der nicht riesig ist) */
-  function vehicleBox() {
-    const v = Mp.bounds(0.15), c = Mp.center(), cb = M.cityBox(c.lat, c.lon);
+  /** Abfragen: die ganze Stadt mit allen Verkehrsmitteln, dazu der Kartenausschnitt.
+      Ist der Ausschnitt groß (weit herausgezoomt), liefert der Server dort nur Züge. */
+  const RAIL = { sbahn: 1, regio: 1, fern: 1, ubahn: 1 };
+  function vehicleQueries(z) {
+    const v = Mp.bounds(0.12), c = Mp.center(), cb = M.cityBox(c.lat, c.lon);
     const area = (b) => (b.maxLat - b.minLat) * (b.maxLon - b.minLon);
-    if (area(v) > area(cb) * 3) return cb;
-    return { name: cb.name, minLat: Math.min(v.minLat, cb.minLat), maxLat: Math.max(v.maxLat, cb.maxLat), minLon: Math.min(v.minLon, cb.minLon), maxLon: Math.max(v.maxLon, cb.maxLon) };
+    if (z < 8.5) return [{ box: v, zoom: z, railOnly: true }];
+    if (area(v) <= area(cb) * 3) {
+      return [{ box: { minLat: Math.min(v.minLat, cb.minLat), maxLat: Math.max(v.maxLat, cb.maxLat), minLon: Math.min(v.minLon, cb.minLon), maxLon: Math.max(v.maxLon, cb.maxLon) }, zoom: Math.max(14, z) }];
+    }
+    return [{ box: cb, zoom: 14 }, { box: v, zoom: z, railOnly: true }];
   }
   const inside = (a, b) => a.minLat >= b.minLat && a.maxLat <= b.maxLat && a.minLon >= b.minLon && a.maxLon <= b.maxLon;
   async function fetchVehicles(force) {
     const m = Mp.map;
     if (!m || !Mp.showVehicles) return;
     if (document.hidden) { scheduleVehicles(); return; }
-    if (m.getZoom() < 8.5) { Mp.vehSegs.clear(); Mp.vehVisible = []; Mp._vehBox = null; M.emit('vehicles:update', { list: [], tooFar: true }); scheduleVehicles(); return; }
+    const z = m.getZoom();
+    if (z < 5.5) { Mp.vehSegs.clear(); Mp.vehVisible = []; Mp._vehBox = null; M.emit('vehicles:update', { list: [], tooFar: true }); scheduleVehicles(); return; }
     // Kartenbewegung innerhalb des schon geladenen Gebiets: nichts neu laden
-    if (!force && Mp._vehBox && Date.now() - lastFetch < 25000 && inside(Mp.bounds(0), Mp._vehBox)) { scheduleVehicles(); return; }
+    const zc = z < 8.5 ? 'far' : 'near';
+    if (!force && Mp._vehBox && Mp._vehZc === zc && Date.now() - lastFetch < 25000 && inside(Mp.bounds(0), Mp._vehBox)) { scheduleVehicles(); return; }
     const token = ++Mp.vehAbort;
-    const box = vehicleBox();
+    const qs = vehicleQueries(z);
+    const box = qs.reduce((a, q) => ({ minLat: Math.min(a.minLat, q.box.minLat), maxLat: Math.max(a.maxLat, q.box.maxLat), minLon: Math.min(a.minLon, q.box.minLon), maxLon: Math.max(a.maxLon, q.box.maxLon) }), qs[0].box);
+    box.name = z < 8.5 ? '' : M.cityBox(Mp.center().lat, Mp.center().lon).name;
     try {
-      const segs = await M.Transit.vehicles(box, Math.max(14, m.getZoom()));
+      const parts = await Promise.all(qs.map((q) => M.Transit.vehicles(q.box, q.zoom).then((list) => (q.railOnly ? list.filter((s) => RAIL[s.line.mode]) : list))));
+      const seen = new Set(), segs = [];
+      parts.forEach((list) => list.forEach((s) => { const k = s.tripId + '|' + s.dep; if (!seen.has(k)) { seen.add(k); segs.push(s); } }));
       if (token !== Mp.vehAbort) return;
       const byTrip = new Map();
       segs.forEach((s) => {
@@ -433,7 +443,7 @@
       });
       byTrip.forEach((arr) => arr.sort((a, b) => a.dep - b.dep));
       Mp.vehSegs = byTrip;
-      Mp._vehBox = box; Mp.vehArea = box.name;
+      Mp._vehBox = box; Mp._vehZc = zc; Mp.vehArea = box.name;
       lastFetch = Date.now();
       M.emit('vehicles:loaded', { count: byTrip.size });
     } catch (e) {
@@ -570,7 +580,8 @@
     if (!Mp.map) return;
     if (!pos) { if (Mp._tripVeh) { Mp._tripVeh.remove(); Mp._tripVeh = null; } return; }
     if (!Mp._tripVeh) {
-      const el = M.h('<div class="veh-marker">' + M.C.badges(line) + '</div>');
+      // Karte: Tram und Bus nur mit Liniennummer, Züge mit S-Bahn-/DB-Zeichen
+      const el = M.h('<div class="veh-marker">' + (line.mode === 'tram' || line.mode === 'bus' ? '<span class="bds">' + M.C.lineBadge(line) + '</span>' : M.C.badges(line)) + '</div>');
       Mp._tripVeh = new maplibregl.Marker({ element: el }).setLngLat([pos.lon, pos.lat]).addTo(Mp.map);
     } else Mp._tripVeh.setLngLat([pos.lon, pos.lat]);
   };
