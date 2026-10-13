@@ -81,6 +81,7 @@ svg.i { width: 20px; height: 20px; flex: none; display: block; }
 .sheet-head .acts { display: flex; gap: 14px; align-items: center; }
 .sheet-head .act { color: var(--gray); display: grid; place-items: center; width: 28px; height: 28px; }
 .sheet-head .act.on { color: var(--accent); }
+.sheet-head .act.home { color: #fff; }
 .sheet-head .act svg.i { width: 24px; height: 24px; }
 .head-extra { flex: none; padding: 0 var(--pad) 14px; border-bottom: 1px solid var(--sep); touch-action: none; }
 .sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-bottom: calc(var(--safe-b) + 28px); }
@@ -219,7 +220,6 @@ svg.i { width: 20px; height: 20px; flex: none; display: block; }
 /* ---------- Fahrtverlauf ---------- */
 .trip-head { display: flex; align-items: center; gap: 12px; margin-top: 2px; }
 .trip-head .to { font-size: 18px; font-weight: 600; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.trip-via { color: var(--gray); font-size: 14px; margin-top: 10px; }
 .trow { position: relative; display: grid; grid-template-columns: 1fr auto; column-gap: 12px; align-items: center; min-height: 60px; padding: 9px var(--pad) 9px 64px; width: 100%; text-align: left; }
 .trow::after { content: ""; position: absolute; left: 50px; right: 0; bottom: 0; height: 1px; background: var(--sep-soft); }
 .trow:last-of-type::after { display: none; }
@@ -238,6 +238,13 @@ svg.i { width: 20px; height: 20px; flex: none; display: block; }
 .rl-node { left: 25px; width: 0; height: 0; }
 .rl-node::before { content: ""; box-sizing: border-box; position: absolute; left: -10px; top: -10px; width: 20px; height: 20px; border-radius: 50%; background: #fff; z-index: 2; }
 .rl-node::after { content: ""; box-sizing: border-box; position: absolute; left: -8px; top: -8px; width: 16px; height: 16px; border-radius: 50%; background: var(--dc, #fff); border: 3.5px solid var(--c); z-index: 3; }
+/* Hinweise je Halt: Meldungen und Anschlüsse */
+.tinfo { margin-top: 6px; display: grid; gap: 4px; }
+.tinfo .ti { display: grid; grid-template-columns: 16px 1fr; gap: 7px; align-items: start; font-size: 14px; line-height: 1.45; color: #C9C9CC; white-space: normal; }
+.tinfo .ti svg.i { width: 15px; height: 15px; margin-top: 2px; color: var(--blue); }
+.tinfo .ti.warn svg.i { color: var(--warn); }
+.tinfo .cx { white-space: nowrap; }
+.trip-head .to-ar { width: 20px; height: 20px; color: #fff; flex: none; }
 .trip-gap { padding: 14px var(--pad) 4px; }
 .trip-gap .alert-line { padding-bottom: 6px; }
 .trow .nm { font-size: 17px; font-weight: 500; display: flex; align-items: center; gap: 10px; min-width: 0; }

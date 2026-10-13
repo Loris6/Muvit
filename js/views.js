@@ -516,7 +516,7 @@
       mit runder Spitze genau an ihrer aktuellen Position (Echtzeit). Die Endstelle hat immer den Kreis. */
   function layoutRail(listEl, rp) {
     const rows = listEl.querySelectorAll(':scope > .trow');
-    const ys = Array.from(rows, (r) => r.offsetTop + r.offsetHeight / 2);
+    const ys = Array.from(rows, (r) => r.offsetTop + Math.min(r.offsetHeight / 2, 31));
     const n = ys.length;
     if (!n) return;
     let layer = listEl.querySelector(':scope > .rl');
@@ -563,13 +563,7 @@
     }
     return { lat: s[prog.idx + 1].lat, lon: s[prog.idx + 1].lon };
   }
-  function viaText(t) {
-    const ln = t.line && t.line.longName;
-    if (ln && !/^\s*\d+\s*$/.test(ln) && ln.length < 60) return ln;
-    const s = t.stops;
-    if (s.length < 5) return '';
-    return 'ü. ' + s[Math.floor(s.length / 3)].name + ' & ' + s[Math.floor((2 * s.length) / 3)].name;
-  }
+
   M.tripProgress = tripProgress;
 
   V.trip = {
@@ -578,21 +572,47 @@
       const p = ctx.params, st = ctx.state;
       let idxs = null;
       ctx.head({ title: 'Fahrtverlauf' });
-      if (p.line) ctx.extra('<div class="trip-head">' + C.badges(p.line) + '<span class="to">-&gt; …</span></div>');
+      const headHTML = (line, to) => '<div class="trip-head">' + C.badges(line) + icon('arrow', 'to-ar') + '<span class="to">' + esc(to) + '</span></div>';
+      if (p.line) ctx.extra(headHTML(p.line, '…'));
       ctx.body.innerHTML = C.skel(7);
+      st.conn = st.conn || {};
 
-      /** Halte einer Fahrt als Zeitstrahl in Linienfarbe (weiß umrandet) */
+      /** Fahrt am angezeigten Ziel teilen (z. B. Linie 2 bis City Carré); der Rest ist die Weiterfahrt */
+      function cutTrip(t) {
+        const h = M.headIdx(t);
+        if (h < 0) return { main: t, rest: null };
+        const ci = stopCoordIdx(t);
+        const main = Object.assign({}, t, { stops: t.stops.slice(0, h + 1), coords: t.coords.slice(0, (ci[h] || 0) + 1), next: null, continues: null });
+        const rest = Object.assign({}, t, { stops: t.stops.slice(h), coords: t.coords.slice(ci[h] || 0), headsign: t.stops[t.stops.length - 1].name, next: null, continues: null });
+        return { main, rest };
+      }
+      const timeOf = (x) => (x ? M.fmtTime(x) : '');
+      /** Hinweise an einem Halt: Haltestellen-Meldungen und Anschlüsse */
+      function stopInfo(s, line) {
+        let h = '';
+        (s.alerts || []).slice(0, 2).forEach((a) => { h += '<div class="ti warn">' + icon('warnFill') + '<span>' + C.richText(a.title, line, s.name) + '</span></div>'; });
+        const cn = st.conn[(s.id || s.name) + '|' + line.name];
+        if (cn && cn.length) {
+          h += '<div class="ti">' + icon('transfer') + '<span>Anschluss: ' + cn.map((c) => '<span class="cx"><span class="ref">' + C.badges(c.line, { sm: true }) + '</span> ' + esc(c.headsign) + ' ' + timeOf(c.time) + '</span>').join(' · ') + '</span></div>';
+        }
+        return h ? '<div class="tinfo">' + h + '</div>' : '';
+      }
+      /** Halte einer Fahrt als Zeitstrahl in Linienfarbe */
       function partHTML(t, pi, now) {
         const rp = railProgress(t, now);
         const next = firstOpen(rp, t.stops.length);
         const c = M.routeColor(t.line);
         const wc = t.wheelchair ? ' • ' + icon('wheel') : '';
+        const n = t.stops.length;
         let h = '<div class="trip-list" style="--c:' + c + ';--dc:' + M.stopDotColor(c) + '">';
         t.stops.forEach((s, i) => {
           const past = i < next, isNext = i === next;
-          const tm = i === t.stops.length - 1 ? (s.arr || s.dep) : (s.dep || s.arr);
-          const pl = i === t.stops.length - 1 ? (s.arrPlanned || s.depPlanned) : (s.depPlanned || s.arrPlanned);
+          const tm = i === n - 1 ? (s.arr || s.dep) : (s.dep || s.arr);
+          const pl = i === n - 1 ? (s.arrPlanned || s.depPlanned) : (s.depPlanned || s.arrPlanned);
           const d = t.realtime ? M.delayMin(tm, pl) : null;
+          // Aufenthalt: Ankunft und Abfahrt getrennt zeigen (z. B. an 18:45, ab 18:48)
+          const ar = s.arr || s.arrPlanned, de = s.dep || s.depPlanned;
+          const dwell = i > 0 && i < n - 1 && ar && de && de - ar >= 60000;
           let ss, a, b;
           if (past) {
             ss = '<span>Abgefahren</span>' + wc;
@@ -604,30 +624,33 @@
             ss = '<span class="' + x.cls + '">' + txt + '</span>' + (wc ? '<span class="c-gray" style="display:inline-flex;gap:6px;align-items:center">' + wc + '</span>' : '');
             const mins = M.minsUntil(tm);
             a = '<span class="' + (s.cancelled ? 'c-red' : mins <= 3 ? 'c-orange' : 'c-green') + '">' + (mins <= 0 ? 'Jetzt' : 'In ' + mins + ' Min') + '</span>';
-            b = 'Um ' + M.fmtTime(pl || tm) + (d ? '<span class="vsl"> (vsl. ' + M.fmtTime(tm) + ')</span>' : '');
+            b = dwell ? 'an ' + M.fmtTime(ar) + '<br>ab ' + M.fmtTime(de) : 'Um ' + M.fmtTime(pl || tm) + (d ? '<span class="vsl"> (vsl. ' + M.fmtTime(tm) + ')</span>' : '');
           }
           h += '<button class="trow' + (past ? ' past' : '') + (isNext ? ' next' : '') + '" data-p="' + pi + '" data-i="' + i + '">' +
-            '<div style="min-width:0"><div class="nm"><span>' + esc(s.name) + '</span>' + (!past ? C.bstg(s.platform, t.line.mode, s.plannedPlatform) : '') + '</div><div class="ss">' + ss + '</div></div>' +
+            '<div style="min-width:0"><div class="nm"><span>' + esc(s.name) + '</span>' + (!past ? C.bstg(s.platform, t.line.mode, s.plannedPlatform) : '') + '</div><div class="ss">' + ss + '</div>' + (past ? '' : stopInfo(s, t.line)) + '</div>' +
             '<div class="r"><div class="a">' + a + '</div><div class="b">' + b + '</div></div></button>';
         });
         return { html: h + '</div>', next, key: rp.state + rp.idx };
       }
+      function gapHTML(info, n) {
+        const at = (info && info.at) || n.stops[0].name;
+        const txt = info && info.line === null
+          ? 'Fährt ab ' + esc(at) + ' weiter nach ' + esc(n.headsign || '')
+          : 'Fährt ab ' + esc(at) + ' weiter als <span class="ref">' + C.badges(n.line, { sm: true }) + '</span> nach ' + esc(n.headsign || (info && info.headsign) || '');
+        return '<div class="trip-gap"><div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">' + txt + '</span><span></span></div></div>';
+      }
       function draw() {
         const t = st.trip, now = Date.now();
-        ctx.extra('<div class="trip-head">' + C.badges(t.line) + '<span class="to">-&gt; ' + esc(t.headsign) + '</span></div>' + (viaText(t) ? '<div class="trip-via">' + esc(viaText(t)) + '</div>' : ''));
+        ctx.extra(headHTML(t.line, t.headsign));
         const main = partHTML(t, 0, now);
         const at = t.stops[Math.min(main.next, t.stops.length - 1)];
         const info = C.infoLines({ alerts: t.alerts, notes: t.notes, line: t.line, stop: at }, 0, { max: 3 });
         let h = (info ? '<div class="trip-info">' + info + '</div>' : '') + main.html;
         const parts = [t];
         if (st.next && st.next.stops && st.next.stops.length) {
-          // Durchläufer: Lücke, Hinweis und der weitere Verlauf in der Farbe der neuen Linie
-          const n = st.next, ni = st.nextInfo || {};
-          parts.push(n);
-          h += '<div class="trip-gap"><div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">Fährt' + (ni.at || n.stops[0].name ? ' ab ' + esc(ni.at || n.stops[0].name) : '') + ' weiter als <span class="ref">' + C.badges(n.line, { sm: true }) + '</span> nach ' + esc(n.headsign || ni.headsign || '') + '</span><span></span></div></div>';
-          h += partHTML(n, 1, now).html;
-        } else if (t.continues) {
-          h += '<div class="trip-gap"><div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">Fährt ab ' + esc(t.continues.at) + ' weiter als <span class="ref">' + C.badges(t.continues.line, { sm: true }) + '</span> nach ' + esc(t.continues.headsign) + '</span><span></span></div></div>';
+          // Linienwechsel: Lücke, Hinweis und die nächste Fahrt in der Farbe der neuen Linie
+          parts.push(st.next);
+          h += gapHTML(st.nextInfo, st.next) + partHTML(st.next, 1, now).html;
         }
         h += '<div class="trip-foot">' + icon('live') + (t.realtime ? 'Echtzeitdaten' : 'Fahrplandaten') + ' · aktualisiert ' + M.fmtTime(st.updated || new Date()) + '</div>';
         const keep = ctx.body.scrollTop;
@@ -646,19 +669,43 @@
           if (target && main.next > 3) setTimeout(() => { if (ctx.alive()) ctx.body.scrollTop = target.offsetTop; }, 60);
         }
         placeVehicle();
+        loadConnections(parts, now);
       }
-      /** Fährt das Fahrzeug danach als andere Linie weiter? Dann den weiteren Verlauf anhängen. */
+      /** Anschlüsse an den nächsten Halten nachladen (je Halt eine Abfrage, zwischengespeichert) */
+      let connPending = false;
+      function loadConnections(parts, now) {
+        parts.forEach((pt) => {
+          const nx = firstOpen(railProgress(pt, now), pt.stops.length);
+          pt.stops.slice(nx, nx + 5).forEach((s) => {
+            const key = (s.id || s.name) + '|' + pt.line.name;
+            if (key in st.conn || !s.id) return;
+            st.conn[key] = null;
+            M.Transit.connections(s, s.arr || s.dep || s.arrPlanned || s.depPlanned, pt.line, st.nextInfo && st.nextInfo.tripId).then((list) => {
+              st.conn[key] = list || [];
+              if (list && list.length && ctx.alive() && !connPending) { connPending = true; requestAnimationFrame(() => { connPending = false; if (ctx.alive()) draw(); }); }
+            });
+          });
+        });
+      }
+      /** Weiterfahrt als andere Linie ermitteln und als zweiten Abschnitt anhängen */
       async function loadNext() {
-        const t = st.trip;
-        if (!t || st.nextTried === t.tripId) return;
-        st.nextTried = t.tripId;
-        if (t.next && t.next.stops && t.next.stops.length) { st.next = t.next; st.nextInfo = t.continues; draw(); return; }
-        const c = await M.Transit.continuation({ tripId: t.tripId, src: t.src, line: t.line });
-        if (!c || !c.tripId || !ctx.alive()) return;
-        const t2 = await M.Transit.trip(c.tripId, c.src || 'motis').catch(() => null);
-        if (!t2 || !ctx.alive()) return;
-        st.next = t2; st.nextInfo = c;
-        draw();
+        const raw = st.raw;
+        if (!raw || st.nextTried === raw.tripId) return;
+        st.nextTried = raw.tripId;
+        if (raw.next && raw.next.stops && raw.next.stops.length) { st.next = raw.next; st.nextInfo = raw.continues; draw(); return; }
+        const c = await M.Transit.continuation({ tripId: raw.tripId, src: raw.src, line: raw.line, headsign: raw.headsign });
+        if (!ctx.alive() || !c) return;
+        if (c.tripId) {
+          const t2 = await M.Transit.trip(c.tripId, c.src || 'motis').catch(() => null);
+          if (!t2 || !ctx.alive()) return;
+          // nur ab dem Umstiegshalt (falls die Fahrt der neuen Linie früher beginnt)
+          const k = t2.stops.findIndex((x) => x.name === c.at);
+          st.next = k > 0 ? Object.assign({}, t2, { stops: t2.stops.slice(k) }) : t2;
+          st.nextInfo = c;
+          draw();
+        } else if (st.rest) {
+          st.nextInfo = { line: null, at: c.at, headsign: st.rest.headsign };
+        }
       }
       function layoutRails(now) {
         ctx.body.querySelectorAll('.trip-list').forEach((el, k) => { const pt = (st.parts || [])[k]; if (pt) layoutRail(el, railProgress(pt, now)); });
@@ -671,18 +718,24 @@
         if (keys.join() !== (st.keys || []).join()) draw(); else layoutRails(now);
       }
       function placeVehicle() {
-        const t = st.trip; if (!t) return;
+        const t = st.raw || st.trip; if (!t) return;
         const prog = tripProgress(t, Date.now());
         idxs = idxs || stopCoordIdx(t);
-        M.Map.setTripVehicle(prog.state === 'between' || prog.state === 'at' ? tripPos(t, idxs, prog) : null, t.line);
+        M.Map.setTripVehicle(prog.state === 'between' || prog.state === 'at' ? tripPos(t, idxs, prog) : null, (st.next && prog.state !== 'before' && st.trip && prog.idx >= st.trip.stops.length - 1) ? st.next.line : t.line);
       }
       async function load(manual) {
         try {
-          const t = await M.Transit.trip(p.tripId, p.src);
+          const raw = await M.Transit.trip(p.tripId, p.src);
           if (!ctx.alive()) return;
           const first = !st.trip;
-          st.trip = t; st.updated = new Date(); idxs = null;
-          M.Map.drawTrip(t, { fit: first || manual });
+          const cut = cutTrip(raw);
+          st.raw = raw; st.trip = cut.main; st.rest = cut.rest; st.updated = new Date(); idxs = null;
+          // Weiterfahrt derselben Fahrt sofort zeigen; die Linie wird nachgeladen
+          if (cut.rest && (!st.next || st.next === st.restShown)) {
+            st.next = cut.rest; st.restShown = cut.rest;
+            if (!st.nextInfo || st.nextInfo.line === null) st.nextInfo = { line: null, at: cut.main.stops[cut.main.stops.length - 1].name, headsign: cut.rest.headsign };
+          }
+          M.Map.drawTrip(cut.main, { fit: first || manual });
           draw();
           loadNext();
           if (manual) M.toast('Fahrtverlauf aktualisiert');

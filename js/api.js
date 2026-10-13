@@ -205,7 +205,7 @@
         time: d(time || planned), planned: d(planned || time),
         delay: leg.realTime ? M.delayMin(time, planned) : null,
         platform: p.track || p.scheduledTrack || '', plannedPlatform: p.scheduledTrack || '',
-        cancelled: !!p.cancelled, alerts: p.alerts
+        cancelled: !!p.cancelled, alerts: alertList(p.alerts)
       };
     }
 
@@ -224,7 +224,8 @@
         stops: (l.intermediateStops || []).map((p) => ({
           id: p.stopId || '', name: LN(p.name), lat: p.lat, lon: p.lon,
           arr: d(p.arrival), arrPlanned: d(p.scheduledArrival), dep: d(p.departure), depPlanned: d(p.scheduledDeparture),
-          platform: p.track || p.scheduledTrack || '', plannedPlatform: p.scheduledTrack || '', cancelled: !!p.cancelled
+          platform: p.track || p.scheduledTrack || '', plannedPlatform: p.scheduledTrack || '', cancelled: !!p.cancelled,
+          alerts: alertList(p.alerts)
         })),
         coords: g && g.points ? M.decodePolyline(g.points, g.precision == null ? 6 : g.precision) : [],
         distance: l.distance || (g && g.length) || null,
@@ -276,6 +277,7 @@
         platform: p.track || p.scheduledTrack || '', plannedPlatform: p.scheduledTrack || '',
         stop: { id: p.stopId, name: LN(p.name), lat: p.lat, lon: p.lon, src: 'motis', type: 'stop' },
         alerts: alertList(p.alerts), src: 'motis',
+        noPickup: st.pickupDropoffType === 'NOT_ALLOWED',
         wheelchair: st.wheelchairAccessible === 'ACCESSIBLE'
       };
       const inf = splitInfo(o.alerts);
@@ -353,17 +355,17 @@
         const stopsOf = (ls) => {
           const out = [];
           ls.forEach((leg, i) => {
-            if (i === 0) out.push({ id: leg.from.id, name: leg.from.name, lat: leg.from.lat, lon: leg.from.lon, arr: null, arrPlanned: null, dep: leg.from.time, depPlanned: leg.from.planned, platform: leg.from.platform, plannedPlatform: leg.from.plannedPlatform, cancelled: leg.from.cancelled });
+            if (i === 0) out.push({ id: leg.from.id, name: leg.from.name, lat: leg.from.lat, lon: leg.from.lon, arr: null, arrPlanned: null, dep: leg.from.time, depPlanned: leg.from.planned, platform: leg.from.platform, plannedPlatform: leg.from.plannedPlatform, cancelled: leg.from.cancelled, alerts: leg.from.alerts });
             leg.stops.forEach((x) => out.push(x));
-            out.push({ id: leg.to.id, name: leg.to.name, lat: leg.to.lat, lon: leg.to.lon, arr: leg.to.time, arrPlanned: leg.to.planned, dep: null, depPlanned: null, platform: leg.to.platform, plannedPlatform: leg.to.plannedPlatform, cancelled: leg.to.cancelled });
+            out.push({ id: leg.to.id, name: leg.to.name, lat: leg.to.lat, lon: leg.to.lon, arr: leg.to.time, arrPlanned: leg.to.planned, dep: null, depPlanned: null, platform: leg.to.platform, plannedPlatform: leg.to.plannedPlatform, cancelled: leg.to.cancelled, alerts: leg.to.alerts });
           });
           return out;
         };
         const stops = [];
         legs.forEach((leg, i) => {
-          if (i === 0) stops.push({ id: leg.from.id, name: leg.from.name, lat: leg.from.lat, lon: leg.from.lon, arr: null, arrPlanned: null, dep: leg.from.time, depPlanned: leg.from.planned, platform: leg.from.platform, plannedPlatform: leg.from.plannedPlatform, cancelled: leg.from.cancelled });
+          if (i === 0) stops.push({ id: leg.from.id, name: leg.from.name, lat: leg.from.lat, lon: leg.from.lon, arr: null, arrPlanned: null, dep: leg.from.time, depPlanned: leg.from.planned, platform: leg.from.platform, plannedPlatform: leg.from.plannedPlatform, cancelled: leg.from.cancelled, alerts: leg.from.alerts });
           leg.stops.forEach((s) => stops.push(s));
-          stops.push({ id: leg.to.id, name: leg.to.name, lat: leg.to.lat, lon: leg.to.lon, arr: leg.to.time, arrPlanned: leg.to.planned, dep: null, depPlanned: null, platform: leg.to.platform, plannedPlatform: leg.to.plannedPlatform, cancelled: leg.to.cancelled });
+          stops.push({ id: leg.to.id, name: leg.to.name, lat: leg.to.lat, lon: leg.to.lon, arr: leg.to.time, arrPlanned: leg.to.planned, dep: null, depPlanned: null, platform: leg.to.platform, plannedPlatform: leg.to.plannedPlatform, cancelled: leg.to.cancelled, alerts: leg.to.alerts });
         });
         return {
           tripId, line: L.line, headsign: L.headsign || stops[stops.length - 1].name, stops,
@@ -619,6 +621,41 @@
   const norm = (n) => M.localName(n || '').toLowerCase().replace(/[^a-z0-9äöüß]/g, '');
   const sameStop = (a, b) => !!(a && b) && ((a.id && b.id && a.id === b.id) || norm(a.name) === norm(b.name));
   const samePlatform = (a, b) => !a || !b || String(a) === String(b);
+  /** Fährt das Fahrzeug über sein angezeigtes Ziel hinaus (Ziel ≠ letzter Halt)? → wechselt dort die Linie */
+  const isThrough = (x) => !!(x.dest && x.headsign && norm(x.dest.name) !== norm(x.headsign));
+  /** Halt, der dem angezeigten Ziel entspricht (vor dem letzten Halt) – dort wechselt die Linie */
+  M.headIdx = function (t) {
+    const h = norm(t.headsign);
+    if (!h) return -1;
+    for (let i = 1; i < t.stops.length - 1; i++) if (norm(t.stops[i].name) === h) return i;
+    return -1;
+  };
+  /** Abfahrtstafel aufräumen:
+      - Fahrten, die hier enden oder an denen man nicht einsteigen kann, sind keine Abfahrten
+      - Ein Fahrzeug, das die Linie wechselt, erscheint in manchen Daten doppelt (alte und neue Linie
+        gleichzeitig). Dann bleibt nur die neue Linie – mit „Kommt als …“.
+      - nach tatsächlicher Abfahrtszeit sortieren */
+  function cleanDepartures(r, stop, o) {
+    if (!r || !r.list || (o && o.arrivals)) return r;
+    const at = r.stop || stop;
+    let list = r.list.filter((x) => !x.noPickup && !(x.dest && sameStop(x.dest, at) && !(x.origin && sameStop(x.origin, at))));
+    const drop = new Set();
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i], b = list[j];
+        if (!a.line || !b.line || a.line.mode !== b.line.mode || a.line.name === b.line.name) continue;
+        if (!a.planned || !b.planned || Math.abs(a.planned - b.planned) > 90000 || !samePlatform(a.platform, b.platform)) continue;
+        const ta = isThrough(a), tb = isThrough(b);
+        if (ta === tb) continue;
+        const ghost = ta ? a : b, real = ta ? b : a;
+        drop.add(ghost);
+        if (!real.comes) real.comes = { line: ghost.line, from: ghost.origin ? ghost.origin.name : '', tripId: ghost.tripId, src: ghost.src };
+      }
+    }
+    list = list.filter((x) => !drop.has(x)).sort((a, b) => (a.time || 0) - (b.time || 0));
+    return Object.assign({}, r, { list });
+  }
+
   /** Zeit auf 10 Minuten abrunden, damit mehrere Abfragen dieselbe Antwort teilen */
   const bucket = (ms) => new Date(Math.floor(ms / 600000) * 600000);
 
@@ -626,7 +663,7 @@
     Motis, DB, lastSource: 'Transitous',
     search: (text, near) => withFallback('search', [text, near]),
     reverse: (lat, lon) => withFallback('reverse', [lat, lon]),
-    departures: (stop, o) => withFallback('departures', [stop, o]).then((r) => { rememberLines(r.stop || stop, r.list); return r; }),
+    departures: (stop, o) => withFallback('departures', [stop, o]).then((r) => { r = cleanDepartures(r, stop, o); rememberLines(r.stop || stop, r.list); return r; }),
     journeys: (q) => withFallback('journeys', [q]),
     trip: (tripId, src) => (src === 'db' ? DB.trip(tripId) : withFallback('trip', [tripId])),
     vehicles: (b, z) => Motis.vehicles(b, z),
@@ -640,14 +677,19 @@
       return memo('c|' + x.tripId, async () => {
         const t = await M.Transit.trip(x.tripId, 'motis');
         if (t.continues) return t.continues;
-        const last = t.stops[t.stops.length - 1];
-        const arr = last && (last.arrPlanned || last.arr);
+        const h = M.headIdx(t);
+        const end = t.stops[h >= 0 ? h : t.stops.length - 1];
+        const arr = end && (end.arrPlanned || end.arr || end.depPlanned || end.dep);
         if (!arr) return null;
-        const r = await M.Transit.departures({ id: last.id, name: last.name, lat: last.lat, lon: last.lon, type: 'stop', src: 'motis' }, { n: 60, time: bucket(arr.getTime() - 2 * 60000) });
-        const c = r.list.filter((d) => d.line.mode === t.line.mode && d.line.name !== t.line.name && !d.cancelled && d.origin && sameStop(d.origin, last) &&
-          d.planned - arr >= -60000 && d.planned - arr <= 12 * 60000 && samePlatform(d.platform, last.platform))
+        const depHere = end.depPlanned || end.dep || null;   // fährt das Fahrzeug selbst weiter (gleiche Fahrt)?
+        const r = await M.Transit.departures({ id: end.id, name: end.name, lat: end.lat, lon: end.lon, type: 'stop', src: 'motis' }, { n: 60, time: bucket(arr.getTime() - 2 * 60000) });
+        const c = r.list.filter((d) => d.line.mode === t.line.mode && d.line.name !== t.line.name && !d.cancelled && d.tripId !== x.tripId &&
+          ((d.origin && sameStop(d.origin, end)) || (depHere && Math.abs(d.planned - depHere) <= 90000)) &&
+          d.planned - arr >= -60000 && d.planned - arr <= 12 * 60000 && samePlatform(d.platform, end.platform))
           .sort((a, b) => a.planned - b.planned)[0];
-        return c ? { line: c.line, headsign: c.headsign, at: last.name, tripId: c.tripId, src: 'motis', time: c.time } : null;
+        if (c) return { line: c.line, headsign: c.headsign, at: end.name, tripId: c.tripId, src: 'motis', time: c.time };
+        // Linie der Weiterfahrt unbekannt, aber die Fahrt geht über das Ziel hinaus
+        return h >= 0 ? { line: null, headsign: t.stops[t.stops.length - 1].name, at: end.name, tripId: '', src: 'motis' } : null;
       });
     },
     /** „Kommt als …“: Beginnt die Fahrt hier, endet dann kurz vorher am selben Bahnsteig eine andere Linie? */
@@ -659,6 +701,19 @@
           x.planned - a.planned >= -60000 && x.planned - a.planned <= 12 * 60000 && samePlatform(a.platform, x.platform))
           .sort((a, b) => b.planned - a.planned)[0];
         return c ? { line: c.line, from: c.origin ? c.origin.name : '', tripId: c.tripId, src: 'motis' } : null;
+      });
+    },
+    /** Anschlüsse an einem Halt: andere Linien, die 1–10 Minuten nach der Ankunft abfahren */
+    connections(s, arr, line, skipTrip) {
+      if (!s || !s.id || !arr) return Promise.resolve([]);
+      const t0 = +arr;
+      return memo('x|' + s.id + '|' + bucket(t0).getTime() + '|' + (line ? line.mode + line.name : ''), async () => {
+        const r = await M.Transit.departures({ id: s.id, name: s.name, lat: s.lat, lon: s.lon, type: 'stop', src: 'motis' }, { n: 60, time: bucket(t0) });
+        const seen = new Set();
+        return r.list.filter((d) => !d.cancelled && d.line && d.tripId !== skipTrip && !(line && d.line.name === line.name && d.line.mode === line.mode) &&
+            d.time - t0 >= 60000 && d.time - t0 <= 10 * 60000)
+          .filter((d) => { const k = d.line.mode + d.line.name + d.headsign; if (seen.has(k)) return false; seen.add(k); return true; })
+          .slice(0, 3).map((d) => ({ line: d.line, headsign: d.headsign, time: d.time, tripId: d.tripId }));
       });
     },
     /** Bekanntes Ergebnis ohne neue Anfrage (für sofortiges Zeichnen) */

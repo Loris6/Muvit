@@ -124,7 +124,8 @@
       .forEach((n) => { h += note(C.richText(n.text, x.line, at)); });
     // Durchläufer: „Kommt als [Tram][2] aus …“ / „Fährt weiter als [Tram][13] nach …“
     if (x.comes) h += note('Kommt als <span class="ref">' + C.badges(x.comes.line, { sm: true }) + '</span>' + (x.comes.from ? ' aus ' + esc(x.comes.from) : ''));
-    if (x.cont) h += note('Fährt weiter als <span class="ref">' + C.badges(x.cont.line, { sm: true }) + '</span>' + (x.cont.headsign ? ' nach ' + esc(x.cont.headsign) : ''));
+    if (x.cont) h += note(x.cont.line ? 'Fährt weiter als <span class="ref">' + C.badges(x.cont.line, { sm: true }) + '</span>' + (x.cont.headsign ? ' nach ' + esc(x.cont.headsign) : '')
+      : 'Fährt' + (x.cont.at ? ' ab ' + esc(x.cont.at) : '') + ' weiter nach ' + esc(x.cont.headsign));
     return h;
   };
 
@@ -317,9 +318,13 @@
     const acts = o.actions || [];
     UI.head.innerHTML = (root ? '' : '<button class="back" data-back aria-label="Zurück">' + icon('back') + '</button>') +
       '<h1' + (o.small ? ' class="sm"' : '') + '>' + esc(o.title || '') + '</h1>' +
-      '<div class="acts">' + acts.map((a, i) => '<button class="act' + (a.on ? ' on' : '') + '" data-act="' + i + '" aria-label="' + esc(a.label) + '" title="' + esc(a.label) + '">' + icon(a.icon) + '</button>').join('') + '</div>';
+      '<div class="acts">' + acts.map((a, i) => '<button class="act' + (a.on ? ' on' : '') + '" data-act="' + i + '" aria-label="' + esc(a.label) + '" title="' + esc(a.label) + '">' + icon(a.icon) + '</button>').join('') +
+      // X: direkt zurück zum Start („Wo geht's hin?“)
+      (root ? '' : '<button class="act home" data-home aria-label="Zum Start" title="Zum Start">' + icon('close') + '</button>') + '</div>';
     const b = UI.head.querySelector('[data-back]');
     if (b) b.addEventListener('click', () => UI.back());
+    const x = UI.head.querySelector('[data-home]');
+    if (x) x.addEventListener('click', (e) => { e.stopPropagation(); UI.home(); });
     UI.head.querySelectorAll('[data-act]').forEach((el) => el.addEventListener('click', (e) => { e.stopPropagation(); acts[+el.dataset.act].onClick(el); }));
   }
 
