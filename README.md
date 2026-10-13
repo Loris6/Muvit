@@ -33,7 +33,7 @@ Die Fahrplandaten enthalten nicht direkt, ob ein Fahrzeug als andere Linie weite
 - **Icons:** [Uicons by Flaticon](https://www.flaticon.com/uicons) (Regular, Bold und Solid Rounded aus `@flaticon/flaticon-uicons` 3.3.1). Die Glyphen sind als SVG-Pfade in `js/icons.js` eingebettet. Die Flaticon-Lizenz verlangt eine Namensnennung, sie steht in den Einstellungen unter „Über Muvit“.
 - **Tarife:** Werte in `js/tariffs.js` (marego-Tarifreform 01.08.2026, Deutschlandticket 63 €/Monat seit 01.01.2026). Alle Angaben ohne Gewähr. Fehlende Preise werden nicht geschätzt, Muvit verlinkt dann auf die offizielle Tarifauskunft.
 
-Die Karte braucht keinen API-Schlüssel.
+Die Karte braucht keinen API-Schlüssel. Sie startet im dunklen Design (in den Einstellungen umschaltbar).
 
 ## Starten
 

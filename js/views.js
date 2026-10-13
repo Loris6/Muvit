@@ -488,6 +488,58 @@
     }
     return { state: 'after', idx: n - 1, f: 0 };
   }
+  /** Wo ist das Fahrzeug? „at“ = steht an Halt idx, „between“ = zwischen idx und idx+1 (Anteil f) */
+  const DWELL = 20000;
+  function railProgress(t, now) {
+    const T = t.stops.map(stopTimes), n = T.length;
+    if (!n || T[0].d == null) return { state: 'unknown', idx: 0, f: 0 };
+    if (now < T[0].d - DWELL) return { state: 'before', idx: 0, f: 0 };
+    for (let i = 0; i < n; i++) {
+      const a = T[i].a != null ? T[i].a : T[i].d, d = T[i].d != null ? T[i].d : T[i].a;
+      if (a != null && d != null && now >= a - DWELL && now <= d + DWELL) return { state: 'at', idx: i, f: 0 };
+      if (i < n - 1) {
+        const na = T[i + 1].a != null ? T[i + 1].a : T[i + 1].d;
+        if (d != null && na != null && now > d + DWELL && now < na - DWELL) return { state: 'between', idx: i, f: (now - d - DWELL) / Math.max(1, na - d - 2 * DWELL) };
+      }
+    }
+    return { state: 'after', idx: n - 1, f: 0 };
+  }
+  /** Erster noch nicht passierter Halt */
+  function firstOpen(rp, n) {
+    if (rp.state === 'at') return rp.idx;
+    if (rp.state === 'between') return rp.idx + 1;
+    if (rp.state === 'after') return n;
+    return 0;
+  }
+  /** Verlaufslinie zeichnen: gefahrener Teil grau und dünn, Rest in Linienfarbe mit weißem Rand.
+      Steht die Bahn an einem Halt, sitzt dort der große Kreis; fährt sie, beginnt die farbige Linie
+      mit runder Spitze genau an ihrer aktuellen Position (Echtzeit). Die Endstelle hat immer den Kreis. */
+  function layoutRail(listEl, rp) {
+    const rows = listEl.querySelectorAll(':scope > .trow');
+    const ys = Array.from(rows, (r) => r.offsetTop + r.offsetHeight / 2);
+    const n = ys.length;
+    if (!n) return;
+    let layer = listEl.querySelector(':scope > .rl');
+    if (!layer) { layer = document.createElement('div'); layer.className = 'rl'; listEl.prepend(layer); }
+    let head;
+    if (rp.state === 'between') head = ys[rp.idx] + (ys[rp.idx + 1] - ys[rp.idx]) * Math.min(1, Math.max(0, rp.f));
+    else if (rp.state === 'at') head = ys[rp.idx];
+    else if (rp.state === 'after') head = ys[n - 1];
+    else head = ys[0];
+    const at = rp.state === 'at' ? rp.idx : (rp.state === 'before' || rp.state === 'unknown') ? 0 : -1;
+    const cap = rp.state === 'between';
+    let h = '<div class="rl-gray" style="top:' + ys[0] + 'px;height:' + Math.max(0, head - ys[0]) + 'px"></div>';
+    if (rp.state !== 'after' && ys[n - 1] > head) {
+      h += '<div class="rl-out' + (cap ? ' cap' : '') + '" style="top:' + (head - (cap ? 2 : 0)) + 'px;height:' + (ys[n - 1] - head + (cap ? 2 : 0)) + 'px"></div>' +
+        '<div class="rl-in' + (cap ? ' cap' : '') + '" style="top:' + head + 'px;height:' + (ys[n - 1] - head) + 'px"></div>';
+    }
+    ys.forEach((y, i) => {
+      if (i === n - 1 || i === at) h += '<span class="rl-node" style="top:' + y + 'px"></span>';
+      else h += '<span class="rl-dot' + (y < head - 0.5 ? ' past' : '') + '" style="top:' + y + 'px"></span>';
+    });
+    layer.innerHTML = h;
+  }
+
   function stopCoordIdx(trip) {
     const out = []; let from = 0; const c = trip.coords;
     trip.stops.forEach((s) => {
@@ -531,9 +583,8 @@
 
       /** Halte einer Fahrt als Zeitstrahl in Linienfarbe (weiß umrandet) */
       function partHTML(t, pi, now) {
-        const T = t.stops.map(stopTimes);
-        let next = T.findIndex((x, i) => (i === T.length - 1 ? x.a : x.d) >= now - 20000);
-        if (next < 0) next = T.length;
+        const rp = railProgress(t, now);
+        const next = firstOpen(rp, t.stops.length);
         const c = M.routeColor(t.line);
         const wc = t.wheelchair ? ' • ' + icon('wheel') : '';
         let h = '<div class="trip-list" style="--c:' + c + ';--dc:' + M.stopDotColor(c) + '">';
@@ -555,14 +606,11 @@
             a = '<span class="' + (s.cancelled ? 'c-red' : mins <= 3 ? 'c-orange' : 'c-green') + '">' + (mins <= 0 ? 'Jetzt' : 'In ' + mins + ' Min') + '</span>';
             b = 'Um ' + M.fmtTime(pl || tm) + (d ? '<span class="vsl"> (vsl. ' + M.fmtTime(tm) + ')</span>' : '');
           }
-          const up = i > 0 ? '<span class="rail up"></span>' : '';
-          const dn = i < t.stops.length - 1 ? '<span class="rail dn"></span>' : '';
-          const big = isNext || i === 0 || i === t.stops.length - 1;
-          h += '<button class="trow' + (past ? ' past' : '') + (isNext ? ' next' : '') + '" data-p="' + pi + '" data-i="' + i + '">' + up + dn + '<span class="dot' + (big ? ' big' : '') + '"></span>' +
+          h += '<button class="trow' + (past ? ' past' : '') + (isNext ? ' next' : '') + '" data-p="' + pi + '" data-i="' + i + '">' +
             '<div style="min-width:0"><div class="nm"><span>' + esc(s.name) + '</span>' + (!past ? C.bstg(s.platform, t.line.mode, s.plannedPlatform) : '') + '</div><div class="ss">' + ss + '</div></div>' +
             '<div class="r"><div class="a">' + a + '</div><div class="b">' + b + '</div></div></button>';
         });
-        return { html: h + '</div>', next };
+        return { html: h + '</div>', next, key: rp.state + rp.idx };
       }
       function draw() {
         const t = st.trip, now = Date.now();
@@ -585,6 +633,9 @@
         const keep = ctx.body.scrollTop;
         ctx.body.innerHTML = h;
         ctx.body.scrollTop = keep;
+        st.parts = parts;
+        st.keys = parts.map((pt) => { const rp = railProgress(pt, now); return rp.state + rp.idx; });
+        layoutRails(now);
         bindAll(ctx.body, '.trow', (el) => {
           const pt = parts[+el.dataset.p] || t, s = pt.stops[+el.dataset.i];
           UI.open('stop', { stop: { id: s.id, name: s.name, lat: s.lat, lon: s.lon, type: 'stop', src: pt.src || t.src } });
@@ -609,6 +660,16 @@
         st.next = t2; st.nextInfo = c;
         draw();
       }
+      function layoutRails(now) {
+        ctx.body.querySelectorAll('.trip-list').forEach((el, k) => { const pt = (st.parts || [])[k]; if (pt) layoutRail(el, railProgress(pt, now)); });
+      }
+      /** jede Sekunde: Position in Echtzeit nachführen; erreicht/verlässt die Bahn einen Halt, alles neu zeichnen */
+      function tickRail() {
+        if (!st.trip || !st.parts) return;
+        const now = Date.now();
+        const keys = st.parts.map((pt) => { const rp = railProgress(pt, now); return rp.state + rp.idx; });
+        if (keys.join() !== (st.keys || []).join()) draw(); else layoutRails(now);
+      }
       function placeVehicle() {
         const t = st.trip; if (!t) return;
         const prog = tripProgress(t, Date.now());
@@ -631,7 +692,7 @@
         }
       }
       if (st.trip && ctx.restoring) { M.Map.drawTrip(st.trip); draw(); } else load(false);
-      ctx.every(1000, placeVehicle);
+      ctx.every(1000, () => { placeVehicle(); tickRail(); });
       ctx.every(20000, () => { if (st.trip) draw(); });
       ctx.every(30000, () => load(false));
       ctx.cleanup(() => M.Map.setTripVehicle(null));

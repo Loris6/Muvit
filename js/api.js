@@ -342,13 +342,14 @@
         const it = await call('trip', ['v5', 'v6', 'v4', 'v1'], '/trip', { tripId, language: 'de' }, { ttl: 15000 });
         const all = (it.legs || []).map((l) => nLeg(l)).filter((l) => !l.walk);
         if (!all.length) throw new ApiError('Fahrt nicht gefunden', 404);
-        const L = all[0];
-        // nur die eigene Linie zeigen; fährt das Fahrzeug als andere Linie weiter, wird das als Hinweis angezeigt
-        const legs = [];
-        for (const l of all) { if (legs.length && l.line && (l.line.name !== L.line.name || l.line.mode !== L.line.mode)) break; legs.push(l); }
-        const cont = all[legs.length] || null;
+        // genau eine Fahrt (ein Umlauf, z. B. Westerhüsen → City Carré) – und höchstens die direkt folgende Fahrt
+        const mi = Math.max(0, all.findIndex((l) => l.tripId && l.tripId === tripId));
+        const L = all[mi];
+        const legs = [L];
+        for (let k = mi + 1; k < all.length && L.tripId && all[k].tripId === L.tripId; k++) legs.push(all[k]);
+        const cont = all[mi + legs.length] || null;
         const rest = [];
-        if (cont) for (const l of all.slice(legs.length)) { if (rest.length && l.line && (l.line.name !== cont.line.name || l.line.mode !== cont.line.mode)) break; rest.push(l); }
+        if (cont) for (let k = mi + legs.length; k < all.length && (rest.length === 0 || (cont.tripId && all[k].tripId === cont.tripId)); k++) rest.push(all[k]);
         const stopsOf = (ls) => {
           const out = [];
           ls.forEach((leg, i) => {
