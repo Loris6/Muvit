@@ -33,6 +33,20 @@
       default: return '';
     }
   };
+  /** Nur das Logo eines Verkehrsmittels (Filter an der Haltestelle) – Regional- und Fernverkehr ohne DB-Logo */
+  const MODE_TITLE = { tram: 'Straßenbahn', bus: 'Bus', sbahn: 'S-Bahn', ubahn: 'U-Bahn', regio: 'Regionalverkehr', fern: 'Fernverkehr', ferry: 'Fähre' };
+  C.modeTitle = (m) => MODE_TITLE[m] || 'Sonstige';
+  C.modeLogo = function (mode) {
+    if (mode === 'regio') return '<span class="bd m zug" title="Regionalverkehr">' + icon('train') + '</span>';
+    if (mode === 'fern') return '<span class="bd m fv" title="Fernverkehr">' + icon('trainSide') + '</span>';
+    return C.modeBadge(mode, {}, { mode, agency: '-' }) || '<span class="bd m zug">' + icon('dot') + '</span>';
+  };
+  /** Uhrzeit laut Plan und daneben die voraussichtliche; auf dem Handy nur die voraussichtliche */
+  C.clock = function (planned, rt, cls) {
+    const p = M.fmtTime(planned || rt);
+    if (!rt || !planned || Math.abs(M.toDate(rt) - M.toDate(planned)) < 30000) return 'Um ' + p;
+    return '<span class="t-pl">Um ' + p + '</span> <span class="t-rt ' + (cls || '') + '">vsl. ' + M.fmtTime(rt) + '</span>';
+  };
   /** Liniennummer: Tram eckig in Linienfarbe, Bus rund */
   C.lineBadge = function (line, o) {
     if (!line) return '';
@@ -96,7 +110,9 @@
     const m = M.minsUntil(t);
     if (m <= 0) return 'Jetzt';
     if (m < 100) return 'In ' + m + ' Min' + (dot ? '.' : '');
-    return 'Um ' + M.fmtTime(t);
+    // weiter weg: Uhrzeit, an einem anderen Tag mit Tag („Morgen 05:12“) – nie „in 28391 Min.“
+    const day = M.dayLabel(t);
+    return (day === 'Heute' ? 'Um ' : day + ' ') + M.fmtTime(t);
   };
   /** Tram/Bus: „Bstg.“ (Bahnsteig), Züge: „Gleis“ */
   C.platform = (p, mode) => (p ? (M.isRail(mode) ? 'Gleis ' : 'Bstg. ') + p : '');
@@ -174,7 +190,7 @@
     if (x.comes) h += note('Kommt als <span class="ref">' + C.badges(x.comes.line, { sm: true }) + '</span>' + (x.comes.from ? ' aus ' + esc(x.comes.from) : ''));
     // „Weiter als [Tram][13] nach Sudenburg“ – Ziel ist der letzte Halt der Weiterfahrt, nie der Wechselhalt
     const cdest = x.cont && x.cont.headsign && nn(x.cont.headsign) !== nn(x.cont.at) ? x.cont.headsign : '';
-    if (x.cont) h += note((x.cont.line ? 'Weiter als <span class="ref">' + C.badges(x.cont.line, { sm: true }) + '</span>' : 'Ab ' + esc(x.cont.at || x.headsign) + ' weiter') + (cdest ? ' nach ' + esc(M.localName(cdest)) : ''));
+    if (x.cont && x.cont.line && x.cont.line.name !== x.line.name) h += note('Weiter als <span class="ref">' + C.badges(x.cont.line, { sm: true }) + '</span>' + (cdest ? ' nach ' + esc(M.localName(cdest)) : ''));
     return h;
   };
 
@@ -182,7 +198,7 @@
   C.depRow = function (x, i, o) {
     o = o || {};
     const st = C.status(x);
-    const clk = 'Um ' + M.fmtTime(x.planned || x.time) + (x.realtime && x.delay ? '<span class="vsl"> (vsl.: ' + M.fmtTime(x.time) + ')</span>' : '');
+    const clk = C.clock(x.planned || x.time, x.realtime ? x.time : null, C.delayCls(x));
     const sub = [ '<span class="' + st.cls + '">' + esc(st.text) + '</span>' ];
     if (x.platform) sub.push(C.platformText(x.platform, x.line.mode, x.plannedPlatform));
     if (o.stopName && x.stop) sub.push('<span class="pf">' + esc(x.stop.name) + '</span>');
@@ -251,18 +267,31 @@
 
   /** Höhe der unteren Leiste (ohne sie bei offener Tastatur) */
   UI.tabH = () => (UI.kb || !UI.tabbar ? 0 : (UI._tabH || (UI._tabH = UI.tabbar.offsetHeight)));
-  UI.maxH = () => Math.max(200, window.innerHeight - (UI.kb || 0) - UI.tabH());
+  /** Höhe der App: auf dem iPhone (Home-Bildschirm) bis ganz nach unten, auch wenn iOS die Seite kürzer meldet */
+  UI.appH = () => (UI.app ? UI.app.clientHeight : 0) || window.innerHeight;
+  UI.maxH = () => Math.max(200, UI.appH() - (UI.kb || 0) - UI.tabH());
+  function fitStandalone() {
+    const root = document.documentElement;
+    if (navigator.standalone !== true) { root.style.removeProperty('--app-h'); return; }
+    const portrait = window.matchMedia('(orientation: portrait)').matches;
+    const full = portrait ? Math.max(screen.height, screen.width) : Math.min(screen.height, screen.width);
+    if (full > window.innerHeight + 4 && full - window.innerHeight < 120) root.style.setProperty('--app-h', full + 'px');
+    else root.style.removeProperty('--app-h');
+  }
   UI.minH = () => 112;
 
   UI.init = function () {
     UI.sheet = $('#sheet'); UI.grab = $('#sheetGrab'); UI.head = $('#sheetHead'); UI.extra = $('#sheetExtra'); UI.body = $('#sheetBody');
     UI.scroller = UI.body;
     UI.tabbar = $('#tabbar');
+    UI.app = $('#app');
+    fitStandalone();
     renderTabbar();
     initGestures();
     initKeyboard();
     window.addEventListener('resize', M.debounce(() => {
       UI._tabH = 0;
+      fitStandalone();
       if (UI.h > UI.maxH() || UI.sheet.classList.contains('full')) UI.setH(UI.maxH(), false);
       UI.layout(); M.Map.resize();
     }, 120));
@@ -343,7 +372,7 @@
     if (!UI.tabbar) return;
     UI.tabbar.innerHTML = TABS.map((t) => {
       const on = t.id === UI.tab;
-      return '<button class="tb' + (on ? ' on' : '') + '" data-tab="' + t.id + '"' + (on ? ' aria-current="page"' : '') + '>' + (t.icon === 'dt' ? DT_ICON : icon(on ? t.on : t.icon)) + '<span>' + t.label + '</span></button>';
+      return '<button class="tb' + (on ? ' on' : '') + '" data-tab="' + t.id + '"' + (on ? ' aria-current="page"' : '') + '><span class="ti">' + (t.icon === 'dt' ? DT_ICON : icon(on ? t.on : t.icon)) + '</span><span>' + t.label + '</span></button>';
     }).join('');
     UI.tabbar.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => UI.switchTab(b.dataset.tab)));
   }
@@ -362,6 +391,36 @@
   };
   /** Für Karte, Suche und Mitteilungen: immer in der Auskunft weiterarbeiten */
   UI.toAuskunft = function () { if (UI.tab !== 'auskunft') UI.switchTab('auskunft'); };
+  /* ---------- Extra-Frame: aufgeklappt über dem Sheet, nicht Vollbild (z. B. Störungen) ---------- */
+  UI.panel = function (o) {
+    UI.closePanel(true);
+    const wrap = M.h('<div class="panel-wrap"><div class="panel-bg"></div><section class="panel" role="dialog" aria-label="' + esc(o.title || '') + '">' +
+      '<div class="grab"><span></span></div><header class="panel-head">' + (o.icon || '') + '<h2>' + esc(o.title || '') + '</h2><button class="px" aria-label="Schließen">' + icon('close') + '</button></header>' +
+      '<div class="panel-body">' + (o.html || '') + '</div></section></div>');
+    document.getElementById('app').appendChild(wrap);
+    UI._panel = wrap;
+    requestAnimationFrame(() => requestAnimationFrame(() => wrap.classList.add('open')));
+    wrap.querySelector('.panel-bg').addEventListener('click', () => UI.closePanel());
+    wrap.querySelector('.px').addEventListener('click', () => UI.closePanel());
+    // nach unten wischen schließt
+    const panel = wrap.querySelector('.panel'), head = wrap.querySelectorAll('.grab, .panel-head');
+    let y0 = null, dy = 0;
+    head.forEach((el) => {
+      el.addEventListener('pointerdown', (e) => { if (e.target.closest('button')) return; y0 = e.clientY; dy = 0; panel.style.transition = 'none'; try { el.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ } });
+      el.addEventListener('pointermove', (e) => { if (y0 == null) return; dy = Math.max(0, e.clientY - y0); panel.style.transform = 'translateY(' + dy + 'px)'; });
+      const end = () => { if (y0 == null) return; y0 = null; panel.style.transition = ''; panel.style.transform = ''; if (dy > 70) UI.closePanel(); };
+      el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+    });
+    return wrap.querySelector('.panel-body');
+  };
+  UI.closePanel = function (now) {
+    const w = UI._panel;
+    if (!w) return;
+    UI._panel = null;
+    if (now) { w.remove(); return; }
+    w.classList.remove('open');
+    setTimeout(() => w.remove(), 320);
+  };
   UI.refresh = function () { if (UI.cur) { const e = UI.cur.entry; e.h = UI.h; teardown(UI.cur); show(e, true); } };
   UI.isRoot = () => UI.stack.length <= 1;
 
@@ -372,6 +431,7 @@
   }
 
   function show(entry, restoring) {
+    UI.closePanel(true);
     const v = UI.views[entry.id];
     const cur = { entry, alive: true, cleanups: [] };
     UI.cur = cur;

@@ -114,68 +114,114 @@
   };
 
   /* =====================================================================
-     D-Ticket – das eigene Deutschlandticket zeigen
+     D-Ticket – das eigene Deutschlandticket zeigen (an die Gerätegröße angepasst)
      ===================================================================== */
+  /** Infos zum Deutschlandticket im aufgeklappten Extra-Frame */
+  function dtInfo() {
+    UI.panel({
+      title: 'Deutschlandticket', icon: '<span class="dt-logo sm">' + M.DT_ICON + '</span>',
+      html: ticketCard(product('dt'), {}) +
+        '<div class="kv"><div class="k">Wo gilt es?<small>Bundesweit in Bus, Straßenbahn, U- und S-Bahn sowie RE/RB. Nicht in ICE, IC und EC.</small></div></div>' +
+        '<div class="kv"><div class="k">Kontrolle<small>Barcode zeigen und einen amtlichen Lichtbildausweis dabeihaben.</small></div></div>' +
+        '<div class="kv"><div class="k">Kündigen<small>Monatlich kündbar – meist bis zum 10. eines Monats zum Monatsende, beim Anbieter.</small></div></div>' +
+        '<div class="kv"><div class="k">Apple Wallet & Google Wallet<small>Liegt dein Ticket in der Wallet oder in der App deines Anbieters, mach dort einen Screenshot vom Code und wähle ihn unter „Bearbeiten“ aus. Muvit liest den Code und zeigt ihn im Muvit-Design.</small></div></div>'
+    });
+  }
+  /** Ticket-Code zeichnen: Muvit-Design (geprüft), sonst schwarz-weiß, sonst Originalbild */
+  async function drawCode(box, t, size, prefer) {
+    if (t.code) {
+      const c = document.createElement('canvas');
+      c.className = 'dt-canvas';
+      box.innerHTML = '<div class="dt-wait">' + icon('qrcode') + '</div>';
+      try {
+        const style = await M.DTCode.render(c, t.code, size, prefer);
+        if (style) { box.innerHTML = ''; box.appendChild(c); return style; }
+      } catch (e) { /* unten: Bild */ }
+    }
+    if (t.img) { box.innerHTML = '<img class="dt-img" src="' + t.img + '" alt="Code deines Deutschlandtickets" style="max-width:' + size + 'px;max-height:' + size + 'px">'; return 'image'; }
+    box.innerHTML = '<div class="dt-nocode">' + icon('qrcode') + '<span>Noch kein Code hinterlegt. Unter „Bearbeiten“ einen Screenshot aus der Wallet oder der App deines Anbieters wählen.</span></div>';
+    return null;
+  }
+  /** Vollbild zum Vorzeigen: weiß, großer Code, Bildschirm bleibt an */
+  function dtFullscreen(t) {
+    const p = profile.get();
+    const el = M.h('<div class="dt-fs" role="dialog" aria-label="Deutschlandticket"><button class="dt-fs-x" aria-label="Schließen">' + icon('close') + '</button>' +
+      '<div class="dt-fs-t"><span class="dt-logo">' + M.DT_ICON + '</span><div><b>Deutschlandticket</b><span>' + esc(monthLabel(ym())) + ' · ' + esc(t.name || profile.name(p) || '') + '</span></div></div>' +
+      '<div class="dt-fs-code" data-box></div>' +
+      '<div class="dt-fs-b"><button class="dt-fs-mode" data-mode>' + icon('brightness') + '<span>Kontrollansicht</span></button></div>' +
+      '<div class="dt-fs-h">Bildschirmhelligkeit hochstellen · Lichtbildausweis bereithalten</div></div>');
+    document.getElementById('app').appendChild(el);
+    let lock = null, plain = false;
+    try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then((l) => { lock = l; }).catch(() => {}); } catch (e) { /* ignore */ }
+    const box = el.querySelector('[data-box]');
+    const size = () => Math.floor(Math.min(window.innerWidth - 40, window.innerHeight - 260, 560));
+    const paint = () => drawCode(box, t, size(), plain ? 'plain' : 'design');
+    paint();
+    el.querySelector('[data-mode]').addEventListener('click', (e) => { plain = !plain; e.currentTarget.classList.toggle('on', plain); e.currentTarget.querySelector('span').textContent = plain ? 'Muvit-Design' : 'Kontrollansicht'; paint(); });
+    const close = () => { try { if (lock) lock.release(); } catch (e) { /* ignore */ } el.remove(); window.removeEventListener('keydown', onKey); };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    window.addEventListener('keydown', onKey);
+    el.querySelector('.dt-fs-x').addEventListener('click', close);
+  }
+
   V.dticket = {
     height: 'full',
     render(ctx) {
       const t = dticket.get(), p = profile.get();
-      ctx.head({ title: 'Deutschlandticket', actions: t ? [{ icon: 'settings', label: 'Ticket bearbeiten', onClick: () => UI.open('dtedit', {}) }] : [] });
+      ctx.head({ title: 'Deutschlandticket', actions: [{ icon: 'infoFill', label: 'Infos zum Deutschlandticket', onClick: dtInfo }].concat(t ? [{ icon: 'settings', label: 'Ticket bearbeiten', onClick: () => UI.open('dtedit', {}) }] : []) });
       const dt = product('dt');
-      let h = '';
-      if (t) {
-        const ok = dtValid(t), pv = PROVIDERS[t.provider] || PROVIDERS.other;
-        const holder = t.name || profile.name(p);
-        const born = t.born || (p && p.born);
-        h += '<div class="dt-card' + (ok ? '' : ' off') + '">' +
+      ctx.flexBody();
+      if (!t) {
+        ctx.body.innerHTML = '<div class="dt-screen"><div class="dt-empty">' + '<span class="dt-logo big">' + M.DT_ICON + '</span>' +
+          '<b>Noch kein Deutschlandticket hinterlegt</b><span>Füge dein Ticket aus Apple Wallet, Google Wallet oder der App deines Anbieters hinzu – per Screenshot vom Code. Muvit zeigt es dann im Muvit-Design, auch ohne Internet.</span>' +
+          '<div class="btn-row" style="justify-content:center;padding:18px 0 0"><button class="btn-a" data-add>' + icon('plus') + 'Mein Ticket hinzufügen</button></div>' +
+          '<a class="btn-o" href="' + DT_INFO + '" target="_blank" rel="noopener" style="margin-top:10px">' + icon('ticketR') + 'Deutschlandticket kaufen</a></div></div>';
+        bindAll(ctx.body, '[data-add]', () => UI.open('dtedit', {}));
+        return;
+      }
+      const ok = dtValid(t), pv = PROVIDERS[t.provider] || PROVIDERS.other;
+      const holder = t.name || profile.name(p), born = t.born || (p && p.born);
+      ctx.body.innerHTML = '<div class="dt-screen"><div class="dt-card' + (ok ? '' : ' off') + '">' +
           '<div class="dt-top"><span class="dt-logo">' + M.DT_ICON + '</span><div style="min-width:0"><div class="dt-t">Deutschlandticket</div><div class="dt-s">' + esc(pv.short) + ' · ' + (dt.price != null ? M.money(dt.price) + ' / Monat' : 'Monatsabo') + '</div></div>' +
           '<span class="dt-state">' + (ok ? icon('check') + 'Abo aktiv' : 'Nicht aktiv') + '</span></div>' +
           '<div class="dt-grid">' +
-            '<div><small>Aktueller Monat</small><b>' + esc(ok ? monthLabel(ym()) : t.since ? 'ab ' + monthLabel(t.since) : '–') + '</b>' + (ok ? '<span>' + dtRange() + '</span>' : '') + '</div>' +
+            '<div><small>Monat</small><b>' + esc(ok ? monthLabel(ym()) : t.since ? 'ab ' + monthLabel(t.since) : '–') + '</b>' + (ok ? '<span>' + dtRange() + '</span>' : '') + '</div>' +
             '<div><small>Inhaber/in</small><b>' + esc(holder || '–') + '</b>' + (born ? '<span>geb. ' + esc(dateLabel(born)) + '</span>' : '') + '</div>' +
           '</div>' +
-          (t.img ? '<button class="dt-code" data-zoom><img src="' + t.img + '" alt="Barcode deines Deutschlandtickets"></button><div class="dt-cap">Barcode deines Anbieters · zum Vergrößern antippen</div>'
-            : '<div class="dt-nocode">' + icon('qrcode') + '<span>Den Barcode zeigst du in der App oder auf der Chipkarte deines Anbieters. Du kannst hier ein Bild davon hinterlegen.</span></div>') +
+          '<button class="dt-codebox" data-codebox aria-label="Code im Vollbild zeigen"></button>' +
+          '<div class="dt-cap" data-cap>Antippen für Vollbild</div>' +
         '</div>' +
-        '<div class="btn-row">' + (pv.url ? '<a class="btn-o acc" href="' + pv.url + '" target="_blank" rel="noopener">' + icon('external') + 'Beim Anbieter öffnen</a>' : '') +
-          '<button class="btn-o" data-edit>' + icon('settings') + 'Bearbeiten</button></div>' +
-        '<div class="hint" style="padding-top:14px">' + icon('infoFill') + '<span>Bei Kontrollen zählt der Barcode deines Anbieters zusammen mit einem amtlichen Lichtbildausweis. Muvit stellt keine Fahrkarten aus.</span></div>';
-      } else {
-        h += '<div class="dt-empty">' + '<span class="dt-logo big">' + M.DT_ICON + '</span>' +
-          '<b>Noch kein Deutschlandticket hinterlegt</b><span>Hinterlege dein Abo, damit du es hier mit einem Tipp zeigen kannst – auch ohne Internet.</span>' +
-          '<div class="btn-row" style="justify-content:center;padding:16px 0 0"><button class="btn-a" data-add>' + icon('plus') + 'Mein Ticket hinzufügen</button></div>' +
-          '<a class="btn-o" href="' + DT_INFO + '" target="_blank" rel="noopener" style="margin-top:10px">' + icon('ticketR') + 'Deutschlandticket kaufen</a></div>';
-      }
-      h += '<div class="lbl">Das Deutschlandticket</div>' + ticketCard(dt, {}) +
-        '<div class="kv"><div class="k">Wo gilt es?<small>Bundesweit in Bus, Straßenbahn, U- und S-Bahn sowie RE/RB. Nicht in ICE, IC und EC.</small></div></div>' +
-        '<div class="kv"><div class="k">Kündigen<small>Monatlich kündbar – meist bis zum 10. eines Monats zum Monatsende, beim Anbieter.</small></div></div>';
-      ctx.body.innerHTML = h;
-      bindAll(ctx.body, '[data-add], [data-edit]', () => UI.open('dtedit', {}));
-      bindAll(ctx.body, '[data-zoom]', (b) => b.classList.toggle('zoom'));
+        '<div class="dt-actions"><button class="btn-o acc" data-fs>' + icon('expand') + 'Vollbild</button>' +
+          (pv.url ? '<a class="btn-o" href="' + pv.url + '" target="_blank" rel="noopener">' + icon('external') + 'Anbieter</a>' : '') +
+          '<button class="btn-o" data-edit>' + icon('settings') + 'Bearbeiten</button></div></div>';
+      const box = M.$('[data-codebox]', ctx.body), cap = M.$('[data-cap]', ctx.body);
+      const fit = () => {
+        const r = box.getBoundingClientRect();
+        const size = Math.floor(Math.max(120, Math.min(r.width - 16, r.height - 16, 460)));
+        drawCode(box, t, size).then((style) => {
+          if (!ctx.alive()) return;
+          cap.textContent = style === 'design' ? 'Muvit-Design · Daten geprüft · antippen für Vollbild' : style === 'plain' ? 'Antippen für Vollbild' : style === 'image' ? 'Bild deines Anbieters · antippen für Vollbild' : '';
+        });
+      };
+      requestAnimationFrame(() => { if (ctx.alive()) fit(); });
+      const onResize = M.debounce(() => { if (ctx.alive()) fit(); }, 200);
+      window.addEventListener('resize', onResize);
+      ctx.cleanup(() => window.removeEventListener('resize', onResize));
+      bindAll(ctx.body, '[data-codebox], [data-fs]', () => dtFullscreen(t));
+      bindAll(ctx.body, '[data-edit]', () => UI.open('dtedit', {}));
     }
   };
 
-  /** Bild verkleinern (Barcodes bleiben scharf: PNG, notfalls JPEG) */
-  function shrinkImage(file) {
-    return new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onerror = () => reject(new Error('Bild konnte nicht gelesen werden'));
-      r.onload = () => {
-        const img = new Image();
-        img.onerror = () => reject(new Error('Kein gültiges Bild'));
-        img.onload = () => {
-          const k = Math.min(1, 1100 / Math.max(img.width, img.height));
-          const c = document.createElement('canvas');
-          c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-          const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(img, 0, 0, c.width, c.height);
-          let url = c.toDataURL('image/png');
-          if (url.length > 1500000) url = c.toDataURL('image/jpeg', 0.9);
-          resolve(url);
-        };
-        img.src = r.result;
-      };
-      r.readAsDataURL(file);
-    });
+  /** Bild für den Speicher verkleinern (Codes bleiben scharf: PNG, notfalls JPEG) */
+  async function shrinkImage(src) {
+    const img = await M.DTCode.loadImage(src);
+    const k = Math.min(1, 1100 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(img, 0, 0, c.width, c.height);
+    let url = c.toDataURL('image/png');
+    if (url.length > 1500000) url = c.toDataURL('image/jpeg', 0.9);
+    return url;
   }
 
   V.dtedit = {
@@ -184,31 +230,50 @@
       const t = dticket.get() || { provider: 'mvb', since: ym(), active: true };
       const p = profile.get() || {};
       ctx.head({ title: 'Mein Deutschlandticket' });
-      let img = t.img || '';
+      let img = t.img || '', code = t.code || null;
       ctx.body.innerHTML =
-        '<div class="hint" style="padding:6px var(--pad) 16px">' + icon('infoFill') + '<span>Deine Angaben bleiben nur auf diesem Gerät. Muvit verkauft und erzeugt keine Tickets.</span></div>' +
+        '<div class="lbl" style="padding-top:6px">Ticket-Code</div>' +
+        '<div class="dt-pick"><button class="dt-prev" data-prev></button><div style="min-width:0"><b data-status></b>' +
+        '<div class="btn-row" style="padding:10px 0 0"><label class="btn-o acc">' + icon('picture') + 'Screenshot wählen<input type="file" accept="image/*" data-file hidden></label>' +
+        '<button class="btn-o" data-noimg' + (img || code ? '' : ' hidden') + '>' + icon('trash') + 'Entfernen</button></div></div></div>' +
+        '<div class="steps"><div><span>1</span>Ticket in <b>Apple Wallet</b>, <b>Google Wallet</b> oder der App deines Anbieters öffnen</div>' +
+          '<div><span>2</span>Screenshot vom Code machen</div><div><span>3</span>Hier „Screenshot wählen“ – Muvit liest den Code und zeigt ihn grün im Muvit-Design</div></div>' +
+        '<div class="lbl">Angaben</div>' +
         '<label class="field"><span>Anbieter</span><select class="inp" data-f="provider">' + Object.keys(PROVIDERS).map((k) => '<option value="' + k + '"' + (t.provider === k ? ' selected' : '') + '>' + esc(PROVIDERS[k].label) + '</option>').join('') + '</select></label>' +
         '<label class="field"><span>Abo seit</span><input class="inp" type="month" data-f="since" value="' + esc(t.since || ym()) + '"></label>' +
         '<label class="field"><span>Name auf dem Ticket</span><input class="inp" data-f="name" autocomplete="name" placeholder="' + esc(profile.name(p) || 'Vor- und Nachname') + '" value="' + esc(t.name || '') + '"></label>' +
         '<label class="field"><span>Geburtsdatum</span><input class="inp" type="date" data-f="born" value="' + esc(t.born || p.born || '') + '"></label>' +
         '<div class="kv" style="border-top:1px solid var(--sep)"><div class="k">Abo aktiv<small>Ausschalten, wenn du gekündigt hast</small></div><label class="sw"><input type="checkbox" data-f="active"' + (t.active !== false ? ' checked' : '') + '><span></span></label></div>' +
-        '<div class="lbl">Bild des Barcodes (optional)</div>' +
-        '<div class="dt-pick"><div data-prev>' + (img ? '<img src="' + img + '" alt="">' : icon('qrcode')) + '</div><div style="min-width:0"><span>Screenshot oder Foto des Barcodes aus der App deines Anbieters.</span>' +
-        '<div class="btn-row" style="padding:10px 0 0"><label class="btn-o">' + icon('plus') + 'Bild wählen<input type="file" accept="image/*" data-file hidden></label>' + '<button class="btn-o" data-noimg' + (img ? '' : ' hidden') + '>' + icon('trash') + 'Entfernen</button></div></div></div>' +
         '<button class="btn-a full" data-save style="margin-top:18px">' + icon('check') + 'Speichern</button>' +
-        (dticket.get() ? '<div class="btn-row"><button class="btn-o" data-del>' + icon('trash') + 'Ticket aus Muvit entfernen</button></div>' : '');
+        (dticket.get() ? '<div class="btn-row"><button class="btn-o" data-del>' + icon('trash') + 'Ticket aus Muvit entfernen</button></div>' : '') +
+        '<div class="hint" style="padding-top:16px">' + icon('lock') + '<span>Alles bleibt nur auf diesem Gerät. Muvit verkauft und erzeugt keine Tickets – der Code stammt immer von deinem Anbieter und bleibt Byte für Byte gleich.</span></div>';
       const f = (k) => M.$('[data-f="' + k + '"]', ctx.body);
-      const prev = M.$('[data-prev]', ctx.body), noimg = M.$('[data-noimg]', ctx.body);
+      const prev = M.$('[data-prev]', ctx.body), noimg = M.$('[data-noimg]', ctx.body), status = M.$('[data-status]', ctx.body);
+      const show = (msg) => {
+        status.textContent = msg || (code ? (code.format === 'AZTEC' ? 'Aztec-Code' : 'QR-Code') + ' erkannt' : img ? 'Bild gespeichert (kein Code erkannt)' : 'Noch kein Code');
+        drawCode(prev, { code, img }, 96);
+        noimg.hidden = !(img || code);
+      };
+      show();
       M.$('[data-file]', ctx.body).addEventListener('change', async (e) => {
         const file = e.target.files && e.target.files[0];
+        e.target.value = '';
         if (!file) return;
-        try { img = await shrinkImage(file); prev.innerHTML = '<img src="' + img + '" alt="">'; noimg.hidden = false; }
-        catch (err) { M.toast(err.message, { type: 'err' }); }
+        status.textContent = 'Code wird gelesen …';
+        try {
+          const src = await M.DTCode.fileToDataURL(file);
+          const found = await M.DTCode.decodeImage(src).catch((err) => { M.toast(err.message, { type: 'err' }); return null; });
+          if (!ctx.alive()) return;
+          if (found) { code = found; img = ''; M.toast((found.format === 'AZTEC' ? 'Aztec-Code' : 'QR-Code') + ' erkannt'); }
+          else { code = null; img = await shrinkImage(src); M.toast('Kein Code erkannt – das Bild wird unverändert gezeigt. Tipp: nur den Code ausschneiden.', { type: 'err', ms: 6000 }); }
+          show();
+        } catch (err) { M.toast(err.message, { type: 'err' }); show(); }
       });
-      noimg.addEventListener('click', () => { img = ''; prev.innerHTML = icon('qrcode'); noimg.hidden = true; });
+      noimg.addEventListener('click', () => { img = ''; code = null; show(); });
+      prev.addEventListener('click', () => { if (code || img) dtFullscreen({ code, img, name: f('name').value.trim() }); });
       bindAll(ctx.body, '[data-save]', () => {
-        const next = { provider: f('provider').value, since: f('since').value || ym(), name: f('name').value.trim(), born: f('born').value, active: f('active').checked, img };
-        if (!dticket.set(next)) { M.toast('Das Bild ist zu groß für den Speicher – bitte einen kleineren Ausschnitt wählen.', { type: 'err', ms: 6000 }); return; }
+        const next = { provider: f('provider').value, since: f('since').value || ym(), name: f('name').value.trim(), born: f('born').value, active: f('active').checked, img, code };
+        if (!dticket.set(next)) { M.toast('Das Bild ist zu groß für den Speicher – bitte nur den Code ausschneiden.', { type: 'err', ms: 6000 }); return; }
         M.toast('Deutschlandticket gespeichert');
         ctx.back();
         UI.refresh();
@@ -240,7 +305,7 @@
         { k: 'reise', icon: 'sliders', title: 'Reise-Optionen', sub: travelSummary() },
         { k: 'set', icon: 'settings', title: 'Einstellungen', sub: 'Assistance (KI), Karte, Mitteilungen, Privatsphäre' },
         { k: 'fav', icon: 'star', title: 'Favoriten', sub: (nf || nr) ? nf + (nf === 1 ? ' Haltestelle' : ' Haltestellen') + ' · ' + nr + (nr === 1 ? ' Route' : ' Routen') : 'Gemerkte Haltestellen & Routen' },
-        { k: 'plan', icon: 'map', title: 'ÖPNV Netz- & Tarifpläne', sub: 'Liniennetz, Nachtnetz, Tarifzonen' },
+        { k: 'plan', icon: 'map', title: 'ÖPNV Netz- & Tarifpläne', sub: 'Liniennetz, Nachtnetz, Tarifübersicht' },
         { k: 'abos', icon: 'idCard', title: 'Abos verwalten', sub: t ? 'Deutschlandticket · ' + (dtValid(t) ? 'gültig' : 'nicht aktiv') : 'Deutschlandticket & marego-Abo' }
       ];
       const SERVICE = [
@@ -345,27 +410,90 @@
     }
   };
 
-  /* ---------- ÖPNV Netz- & Tarifpläne ---------- */
+  /* ---------- ÖPNV Netz- & Tarifpläne – alles in der App ---------- */
   V.plaene = {
     height: 'full',
     render(ctx) {
       ctx.head({ title: 'Netz- & Tarifpläne' });
-      const ext = (url) => '<span class="c-gray" style="font-size:13px">' + esc(url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, '')) + '</span>' + icon('external');
       const L = [
-        { k: 'live', icon: 'netz', title: 'Live-Netzplan', sub: 'Alle Linien und Fahrzeuge in Echtzeit – in Muvit' },
-        { k: 'u:https://www.mvbnet.de/', icon: 'map', title: 'Liniennetzplan Straßenbahn & Bus', sub: 'MVB Magdeburg' },
-        { k: 'u:https://www.mvbnet.de/', icon: 'moon', title: 'Nachtnetz', sub: 'Nachtlinien der MVB' },
-        { k: 'u:' + MAREGO, icon: 'document', title: 'Tarifzonenplan marego', sub: 'Preisstufen im Verbund' },
-        { k: 'u:' + MAREGO, icon: 'document', title: 'Tarifbestimmungen', sub: 'marego-Tarif' },
-        { k: 'u:' + DT_INFO, icon: 'ticketR', title: 'Deutschlandticket', sub: 'Geltungsbereich und Bedingungen' }
+        { k: 'tram', lead: C.modeLogo('tram'), title: 'Liniennetz Straßenbahn', sub: 'Alle Straßenbahnlinien auf der Karte' },
+        { k: 'bus', lead: C.modeLogo('bus'), title: 'Liniennetz Bus', sub: 'Alle Buslinien in Magdeburg und Umgebung' },
+        { k: 'night', icon: 'moon', title: 'Nachtnetz', sub: 'Nachtlinien von Straßenbahn und Bus' },
+        { k: 'live', icon: 'netz', title: 'Live-Netzplan', sub: 'Alle Fahrzeuge in Echtzeit' },
+        { k: 'tarif', icon: 'document', title: 'Tarifübersicht', sub: 'Preisstufe MD, Tickets und Preise' },
+        { k: 'dt', icon: 'ticketR', title: 'Deutschlandticket', sub: 'Geltungsbereich und Bedingungen' }
       ];
-      ctx.body.innerHTML = '<div class="lbl" style="padding-top:6px">Pläne</div>' +
-        L.map((x, i) => C.lrow({ icon: x.icon, title: esc(x.title), sub: esc(x.sub), end: x.k.startsWith('u:') ? ext(x.k.slice(2)) : '', chev: !x.k.startsWith('u:') }, i)).join('') +
-        '<div class="hint" style="padding-top:16px">' + icon('infoFill') + '<span>Die offiziellen Pläne als PDF stellen MVB und marego auf ihren Seiten bereit.</span></div>';
+      ctx.body.innerHTML = '<div class="lbl" style="padding-top:6px">Netzpläne</div>' +
+        L.slice(0, 4).map((x) => C.lrow({ lead: x.lead, icon: x.icon, title: esc(x.title), sub: esc(x.sub) }, x.k)).join('') +
+        '<div class="lbl">Tarif</div>' + L.slice(4).map((x) => C.lrow({ icon: x.icon, title: esc(x.title), sub: esc(x.sub) }, x.k)).join('') +
+        '<div class="note-dim">Linien und Verläufe stammen aus den aktuellen Fahrplandaten (Transitous).</div>';
       bindAll(ctx.body, '.lrow', (el) => {
-        const x = L[+el.dataset.i];
-        if (x.k === 'live') { UI.toAuskunft(); UI.open('netz', {}); } else window.open(x.k.slice(2), '_blank', 'noopener');
+        const k = el.dataset.i;
+        if (k === 'live') UI.open('netz', {});
+        else if (k === 'tarif') UI.open('tarif', {});
+        else if (k === 'dt') dtInfo();
+        else UI.open('netzkarte', { kind: k });
       });
+    }
+  };
+
+  /** Liniennetz auf der Karte: alle Verläufe in Linienfarbe, darunter die Linien */
+  V.netzkarte = {
+    height: 0.5,
+    render(ctx) {
+      const kind = ctx.params.kind, st = ctx.state;
+      const TITLE = { tram: 'Liniennetz Straßenbahn', bus: 'Liniennetz Bus', night: 'Nachtnetz' };
+      ctx.head({ title: TITLE[kind] || 'Liniennetz' });
+      const pick = (L) => (kind === 'night' ? M.isNight(L.line) && (L.line.mode === 'tram' || L.line.mode === 'bus') : L.line.mode === kind && !M.isNight(L.line));
+      const draw = () => {
+        const lines = (st.routes || []).filter(pick).sort((a, b) => a.line.name.localeCompare(b.line.name, 'de', { numeric: true }));
+        if (!lines.length) { ctx.body.innerHTML = C.empty('Keine Linien gefunden', 'Für dieses Netz liegen gerade keine Fahrplandaten vor.'); return; }
+        ctx.body.innerHTML = '<div class="net-legend">' + lines.map((L, i) => '<button class="nl" data-l="' + i + '">' + C.lineBadge(L.line) + '</button>').join('') + '</div>' +
+          lines.map((L, i) => C.lrow({ cls: 'lines', lead: C.badges(L.line), title: esc(L.termini.join(' ↔ ')), sub: L.main.stops.length + ' Haltestellen' }, i)).join('');
+        bindAll(ctx.body, '[data-l], .lrow', (el) => UI.open('linie', { route: lines[+(el.dataset.l != null ? el.dataset.l : el.dataset.i)] }));
+        M.Map.drawNetwork(lines, { fit: !ctx.restoring });
+      };
+      const load = () => {
+        ctx.body.innerHTML = C.skel(6);
+        M.Transit.cityRoutes().then((r) => { st.routes = r; if (ctx.alive()) draw(); })
+          .catch((e) => { if (ctx.alive()) { ctx.body.innerHTML = ''; ctx.body.appendChild(C.error(e, load)); } });
+      };
+      if (st.routes) draw(); else load();
+      // Liniennetz ohne Live-Fahrzeuge darüber – übersichtlicher
+      const vehOn = M.Map.showVehicles;
+      if (vehOn) M.Map.setShowVehicles(false);
+      ctx.cleanup(() => { M.Map.clearRoute(); if (vehOn) M.Map.setShowVehicles(true); });
+    }
+  };
+
+  /** Tarifübersicht in der App */
+  V.tarif = {
+    height: 'full',
+    render(ctx) {
+      const T = M.Tariffs;
+      ctx.head({ title: 'Tarifübersicht' });
+      const row = (id, label) => {
+        const p = product(id);
+        if (!p) return '';
+        return '<tr><td>' + esc(label || p.name) + '</td><td>' + (p.price != null ? M.money(p.price) : '–') + '</td><td>' + (p.app ? M.money(p.app) : '–') + '</td><td>' + (p.child ? M.money(p.child) : '–') + '</td></tr>';
+      };
+      ctx.body.innerHTML = '<div class="lbl" style="padding-top:6px">Preisstufe MD · Stadtgebiet Magdeburg · Stand ' + esc(T.stand) + '</div>' +
+        '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Ticket</th><th>Preis</th><th>App</th><th>Kind</th></tr></thead><tbody>' +
+          row('einzel', 'Einzelfahrt') + row('kurz', 'Kurzstrecke') + row('24h', '24-Stunden-Karte') + row('woche', 'Wochenkarte') + row('monat', 'Monatskarte') +
+        '</tbody></table></div>' +
+        '<div class="hint" style="padding-top:10px">' + icon('infoFill') + '<span>„–“: Preis nicht hinterlegt – bitte beim Kauf prüfen. Kind = 6 bis 14 Jahre.</span></div>' +
+        '<div class="lbl">Abos</div>' +
+        '<div class="tbl-wrap"><table class="tbl"><tbody>' +
+          '<tr><td>Deutschlandticket</td><td>' + M.money(product('dt').price) + ' / Monat</td></tr>' +
+          '<tr><td>Deutschlandticket Job</td><td>mit Arbeitgeber-Zuschuss</td></tr>' +
+          '<tr><td>Deutschlandsemesterticket</td><td>60 % des D-Ticket-Preises</td></tr>' +
+          '<tr><td>Abo-Monatskarte (marego)</td><td>je nach Preisstufe</td></tr>' +
+        '</tbody></table></div>' +
+        '<div class="lbl">Gut zu wissen</div>' +
+        '<div class="kv"><div class="k">Einzelfahrt<small>' + esc(product('einzel').note) + '</small></div></div>' +
+        '<div class="kv"><div class="k">24-Stunden-Karte<small>' + esc(product('24h').note) + '</small></div></div>' +
+        '<div class="kv"><div class="k">Deutschlandticket<small>' + esc(product('dt').note) + '</small></div></div>' +
+        '<div class="kv"><div class="k">Fahrten über Magdeburg hinaus<small>Im Umland gilt der marego-Tarif mit weiteren Preisstufen. Muvit zeigt bei jeder Verbindung eine Tarif-Einschätzung.</small></div></div>';
     }
   };
 

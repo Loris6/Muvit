@@ -20,6 +20,8 @@
     push: { server: '', vapidPublic: '' },
     // Stadtgebiet Magdeburg (grob) – für Tarifhinweise
     mdBBox: { minLat: 52.03, maxLat: 52.235, minLon: 11.50, maxLon: 11.78 },
+    /** Bediengebiet der MVB: Magdeburg mit Randgebieten und Biederitz (Heyrothsberge, Gerwisch) */
+    serviceBBox: { minLat: 52.02, maxLat: 52.235, minLon: 11.47, maxLon: 11.80 },
     motisBase: 'https://api.transitous.org',
     dbBase: 'https://v6.db.transport.rest',
     styles: {
@@ -55,6 +57,12 @@
     if (!line || !M.mkLine) return null;
     const r = (M.CONFIG.lineChanges || []).find((x) => x.line === line.name && normName(at).startsWith(normName(x.at)));
     return r ? M.mkLine(r.to, line.mode) : null;
+  };
+  /** Umgekehrt: aus welcher Linie wird diese Linie an diesem Halt (z. B. 13 ← 2 an City Carré)? */
+  M.ruleFrom = (line, at) => {
+    if (!line || !M.mkLine) return null;
+    const r = (M.CONFIG.lineChanges || []).find((x) => x.to === line.name && normName(at).startsWith(normName(x.at)));
+    return r ? M.mkLine(r.line, line.mode) : null;
   };
   /** „Magdeburg, Sudenburg“ → „Sudenburg“ */
   M.localArea = (a) => String(a || '').split(',').map((x) => x.trim()).filter((x) => x && !M.isMagdeburgName(x)).join(', ');
@@ -173,6 +181,14 @@
     const label = diff === 0 ? 'Heute' : diff === 1 ? 'Morgen' : diff === -1 ? 'Gestern' : M.fmtDay(d);
     return label + ', ' + M.fmtTime(d);
   };
+  /** „Heute“, „Morgen“ oder „Do, 16.10.“ */
+  M.dayLabel = function (d) {
+    d = M.toDate(d);
+    const a = M.berlinParts(d), n = M.berlinParts(new Date());
+    const diff = Math.round((Date.UTC(a.y, a.mo - 1, a.d) - Date.UTC(n.y, n.mo - 1, n.d)) / 864e5);
+    return diff === 0 ? 'Heute' : diff === 1 ? 'Morgen' : diff === -1 ? 'Gestern' : M.fmtDay(d);
+  };
+  M.dayKey = (d) => { const a = M.berlinParts(M.toDate(d)); return a.y + '-' + a.mo + '-' + a.d; };
   M.fmtDur = function (min) {
     min = Math.max(0, Math.round(min));
     if (min < 60) return min + ' Min';
@@ -230,6 +246,11 @@
       out.push([lon / f, lat / f]);
     }
     return out;
+  };
+  /** Liegt der Punkt im Bediengebiet der MVB? (Suche, Haltestellen auf der Karte) */
+  M.inService = function (lat, lon) {
+    const b = M.CONFIG.serviceBBox;
+    return lat != null && lon != null && lat >= b.minLat && lat <= b.maxLat && lon >= b.minLon && lon <= b.maxLon;
   };
   M.inMagdeburg = function (lat, lon) {
     const b = M.CONFIG.mdBBox;

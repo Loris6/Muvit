@@ -46,7 +46,10 @@
     document.getElementById('locateBtn').addEventListener('click', () => M.Map.locate());
 
     // Escape / Hardware-Zurück (Android, iOS-Wischgeste)
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !UI.isRoot() && !e.target.closest('textarea, input')) UI.back(); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || e.target.closest('textarea, input')) return;
+      if (UI._panel) UI.closePanel(); else if (!UI.isRoot()) UI.back();
+    });
     let guard = false;
     const open = UI.open;
     UI.open = function () {
@@ -55,6 +58,7 @@
     };
     window.addEventListener('popstate', () => {
       guard = false;
+      if (UI._panel) { UI.closePanel(); try { history.pushState({ muvit: 1 }, ''); guard = true; } catch (e) { /* ignore */ } return; }
       if (!UI.isRoot()) {
         UI.back();
         if (!UI.isRoot()) { try { history.pushState({ muvit: 1 }, ''); guard = true; } catch (e) { /* ignore */ } }

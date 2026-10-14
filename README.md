@@ -8,17 +8,18 @@ Die Karte liegt immer im Hintergrund. Alle Inhalte stecken in einem dunklen Shee
 
 | Bereich | Was Muvit kann |
 |---|---|
-| **Untere Leiste** | Über die ganze Breite: **Auskunft**, **Tickets**, **D-Ticket** und **Mehr** – jeder Bereich merkt sich seinen eigenen Verlauf |
+| **Suche** | Nur Haltestellen im Bediengebiet der MVB: Magdeburg mit Randgebieten und Biederitz (`CONFIG.serviceBBox`) – keine Treffer aus anderen Städten |
+| **Untere Leiste** | Über die ganze Breite, bis ganz unten: **Auskunft**, **Tickets**, **D-Ticket** und **Mehr** – jeder Bereich merkt sich seinen eigenen Verlauf |
 | **Startframe** | „Wo geht's hin?“ mit Start/Ziel und Tauschen, sechs Schnellzugriffe (Abfahrten, Verkehrsmelder, Abonnements, Netzplan, Ticket kaufen, Assistance) und Verlauf |
 | **Karte** | MapLibre GL mit OpenFreeMap (Hell/Dunkel); Haltestellen als „H“-Schild (Zeichen 224). Ein Tipp auf eine Haltestelle öffnet direkt ihre Abfahrten. Standort mit Genauigkeitskreis; langes Drücken auf die Karte öffnet „Von hier / Nach hier / Haltestellen“ |
 | **Live-Karte** | Alle Straßenbahnen, Busse und Züge der ganzen Stadt in Echtzeit, flüssig entlang der Strecke animiert. Trams und Busse zeigen auf der Karte nur ihre Liniennummer, Züge zusätzlich das S-Bahn- bzw. DB-Logo. Weit herausgezoomt zeigt die Karte die Züge in ganz Deutschland |
 | **Verbindungen** | Echtzeit-Routing mit Verspätungen und Gleisen. Die Karten zeigen eine proportionale Linien-Leiste und Badges wie „Schnellste“ oder „Wenigste Umstiege“. „Früher/Später“, Filter für das Deutschlandticket, bis zu 2 Zwischenhalte mit Mindestaufenthalt |
 | **Verbindung** | Zeitstrahl in Linienfarben mit Gleis, Verspätung, aufklappbaren Zwischenhalten, Fußwegen, Hinweisen/Störungen, Tarif-Einschätzung, DB-Live-Preis, Teilen und Merken |
-| **Abfahrten / Haltestelle** | Suche nach Haltestelle oder Linie, Tabs Verlauf/Favoriten/In der Nähe. Die Haltestellenansicht zeigt eine Echtzeit-Abfahrtstafel mit Countdown, Status (pünktlich, früher, verspätet, fällt aus), Bahnsteig (Bstg.) bei Tram und Bus bzw. Gleis bei Zügen (Gleiswechsel rot hinterlegt) und Filter nach Verkehrsmittel. Unter jeder Linie stehen bei Bedarf Hinweise wie „Baustellenbedingte Umleitung“, „Weiter als [Tram][13] nach Sudenburg“ oder „Kommt als [Tram][2] aus …“ |
+| **Abfahrten / Haltestelle** | Abfahrten nach Tagen getrennt (heute, morgen). Fährt ein Verkehrsmittel stundenlang nicht (z. B. Baustelle), steht statt Abfahrten in Tagen „Derzeit kein Straßenbahnverkehr“ mit Grund. Filter nur mit Logos (Bus, Tram, S-Bahn, Regional-, Fernverkehr). Störungen öffnen sich in einem aufgeklappten Extra-Fenster. Suche nach Haltestelle oder Linie, Tabs Verlauf/Favoriten/In der Nähe. Die Haltestellenansicht zeigt eine Echtzeit-Abfahrtstafel mit Countdown, Status (pünktlich, früher, verspätet, fällt aus), Bahnsteig (Bstg.) bei Tram und Bus bzw. Gleis bei Zügen (Gleiswechsel rot hinterlegt) und Filter nach Verkehrsmittel. Unter jeder Linie stehen bei Bedarf Hinweise wie „Baustellenbedingte Umleitung“, „Weiter als [Tram][13] nach Sudenburg“ oder „Kommt als [Tram][2] aus …“ |
 | **In der Nähe** | Haltestellen im Umkreis mit selbst berechneter Entfernung (Haversine ab Geräteposition), Gehzeit und Himmelsrichtung, dazu eine Vorschau der nächsten Abfahrten |
-| **Fahrtverlauf & Netzplan** | Ein Tipp auf eine Linie öffnet den Fahrtverlauf mit allen Halten, Echtzeit und Live-Position auf der Karte. Die Linie ist durchgehend in Linienfarbe, weiß umrandet, mit Haltestellenpunkten (weiß, bei hellen Linien wie Tram 3 schwarz). Fährt das Fahrzeug als andere Linie weiter, endet der Verlauf am Wechselhalt (z. B. Linie 1 bis City Carré) und nach einer Lücke folgt „Weiter als [Tram][5] nach Klinikum Olvenstedt“ mit dem Verlauf in der Farbe der neuen Linie. Der Netzplan zeigt die ganze Stadt und listet alle Linien einschließlich der Nachtlinien |
+| **Fahrtverlauf & Netzplan** | „Ich fahre mit“: Die GPS-Position zeigt, wo die Bahn wirklich ist (inkl. Abweichung vom Fahrplan). Bahnen halten auf Karte und Verlauf an jeder Haltestelle. Ausgefallene Halte: Name, Zeiten und Status rot durchgestrichen. Uhrzeit laut Plan und daneben die voraussichtliche, auf dem Handy nur die voraussichtliche. Die Linienliste kommt vollständig aus den Fahrplandaten (auch Sonderlinien wie 15), nur Linien in Magdeburg. Netz- und Tarifpläne (Liniennetz Straßenbahn/Bus/Nacht auf der Karte, Tarifübersicht) direkt in der App. Ein Tipp auf eine Linie öffnet den Fahrtverlauf mit allen Halten, Echtzeit und Live-Position auf der Karte. Die Linie ist durchgehend in Linienfarbe, weiß umrandet, mit Haltestellenpunkten (weiß, bei hellen Linien wie Tram 3 schwarz). Fährt das Fahrzeug als andere Linie weiter, endet der Verlauf am Wechselhalt (z. B. Linie 1 bis City Carré) und nach einer Lücke folgt „Weiter als [Tram][5] nach Klinikum Olvenstedt“ mit dem Verlauf in der Farbe der neuen Linie. Der Netzplan zeigt die ganze Stadt und listet alle Linien einschließlich der Nachtlinien |
 | **Tickets** | Alle Tickets für Magdeburg: Einzelfahrt, Kurzstrecke, 24-Stunden-, Wochen- und Monatskarte, Deutschlandticket (auch Job und Semester), marego-Abo und DB-Tickets (Stand 08/2026), dazu Preisermittlung für eine Strecke und DB-Preise live |
-| **D-Ticket** | Das eigene Deutschlandticket mit Monat, Inhaber/in und – falls hinterlegt – dem Barcode-Bild des Anbieters. Alles bleibt auf dem Gerät; Muvit stellt keine Fahrkarten aus |
+| **D-Ticket** | Das eigene Deutschlandticket, an die Bildschirmgröße angepasst. Code per Screenshot aus Apple Wallet, Google Wallet oder der App des Anbieters hinzufügen: Muvit liest den Aztec- bzw. QR-Code und zeigt ihn grün im Muvit-Design. Jeder gezeichnete Code wird vor dem Anzeigen erneut gelesen und mit dem Original verglichen (Daten Byte für Byte gleich), sonst schwarz-weiß bzw. das Originalbild. Vollbild mit Kontrollansicht. Alles bleibt auf dem Gerät; Muvit stellt keine Fahrkarten aus |
 | **Mehr** | „Willkommen in der Muvit App“, Mein Profil (Anmelden, nur auf diesem Gerät), Reise-Optionen (Verkehrsmittel, Umstiege, barrierefrei), Einstellungen, Favoriten, ÖPNV Netz- & Tarifpläne und Abos verwalten |
 | **Assistance (Muvit KI)** | Claude (Anthropic) mit Tool-Use auf echte Daten: Routen von A nach B (auch über C mit XX Min Aufenthalt), Abfahrten, Linien, Tarife, DB-Preise und Haltestellen in der Nähe. Mit Streaming und Spracheingabe. Ohne API-Schlüssel beantwortet ein Basis-Modus typische Fragen |
 
@@ -47,6 +48,8 @@ Die Fahrplandaten enthalten nicht direkt, ob ein Fahrzeug als andere Linie weite
 - Am Wechselhalt sucht Muvit die Linie, mit der dasselbe Fahrzeug weiterfährt: gleiches Verkehrsmittel, gleicher Bahnsteig, bis 12 Minuten später und – wenn die Fahrt weitergeht – dasselbe Ziel. Bekannte Wechsel (`CONFIG.lineChanges`, z. B. 1 → 5 und 2 → 13 an City Carré) haben Vorrang und benennen die Linie auch dann, wenn die Daten sie nicht nennen.
 - Das „nach …“ ist immer die Endhaltestelle der Weiterfahrt, nie der Wechselhalt selbst.
 
+Gibt es dafür keinen Beleg, endet der Verlauf am angezeigten Ziel – Muvit zeigt nie eine Weiterfahrt „als dieselbe Linie“ oder eine Leerfahrt ins Depot.
+
 Für „kommt als …“ gilt das umgekehrt. Hinweise aus den Störungsmeldungen werden zusätzlich ausgewertet.
 
 ## Datenquellen (echte APIs)
@@ -54,6 +57,7 @@ Für „kommt als …“ gilt das umgekehrt. Hinweise aus den Störungsmeldungen
 - **[Transitous](https://transitous.org)** (MOTIS 2, `api.transitous.org`): Fahrplan und Echtzeit für ganz Europa, darunter die MVB-Straßenbahnen und -Busse in Magdeburg (DELFI) sowie Regional- und Fernverkehr. Muvit nutzt `geocode`, `plan`, `stoptimes`, `trip`, `map/stops` und `map/trips` (Live-Fahrzeuge).
 - **[db.transport.rest](https://v6.db.transport.rest)** (Deutsche Bahn): automatischer Fallback und Quelle für DB-Ticketpreise. In den Einstellungen lässt sich die DB auch als primäre Quelle wählen.
 - **Karte:** © [OpenStreetMap](https://www.openstreetmap.org/copyright)-Mitwirkende, Vektor-Kacheln von [OpenFreeMap](https://openfreemap.org), CARTO-Raster als Fallback.
+- **Code-Leser:** [ZXing for JS](https://github.com/zxing-js/library) (Apache-2.0), wird nur auf der D-Ticket-Seite geladen.
 - **Icons:** [Uicons by Flaticon](https://www.flaticon.com/uicons) (Regular, Bold und Solid Rounded aus `@flaticon/flaticon-uicons` 3.3.1). Die Glyphen sind als SVG-Pfade in `js/icons.js` eingebettet. Die Flaticon-Lizenz verlangt eine Namensnennung, sie steht in den Einstellungen unter „Über Muvit“.
 - **Tarife:** Werte in `js/tariffs.js` (marego-Tarifreform 01.08.2026, Deutschlandticket 63 €/Monat seit 01.01.2026). Alle Angaben ohne Gewähr. Fehlende Preise werden nicht geschätzt, Muvit verlinkt dann auf die offizielle Tarifauskunft.
 
@@ -113,6 +117,7 @@ js/map.js               MapLibre: H-Schilder, Live-Fahrzeuge, Routen, Linienverl
 js/ui.js                Ziehbares Sheet, Navigation, Komponenten (Badges, Abfahrten …)
 js/views.js             Ansichten der Auskunft (Start, Verbindungen, Abfahrten, Fahrtverlauf …)
 js/pages.js             Tickets, D-Ticket und Mehr (Profil, Reise-Optionen, Favoriten, Pläne, Abos)
+js/dtcode.js            Ticket-Code lesen (Aztec/QR) und im Muvit-Design zeichnen, mit Prüfung
 js/assistant.js         Muvit KI (Claude-Tool-Use + Basis-Modus)
 js/watch.js             Verbindung überwachen, Mitteilungen bei verpasstem Anschluss
 sw.js                   Service Worker für Mitteilungen (auch Web Push)

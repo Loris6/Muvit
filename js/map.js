@@ -30,9 +30,32 @@
       },
       layers: [
         { id: 'bg', type: 'background', paint: { 'background-color': dark ? '#0b0c14' : '#eef0f5' } },
-        { id: 'carto', type: 'raster', source: 'carto' }
+        { id: 'carto', type: 'raster', source: 'carto', paint: dark ? { 'raster-brightness-min': 0.07 } : {} }
       ]
     };
+  }
+  /** Farben im Stil leicht aufhellen (auch in Ausdrücken wie interpolate/match) */
+  function parseColor(v) {
+    let m;
+    if ((m = /^#([0-9a-f]{3})$/i.exec(v))) return [0, 1, 2].map((i) => parseInt(m[1][i] + m[1][i], 16)).concat(1);
+    if ((m = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(v))) return [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)).concat(m[2] ? parseInt(m[2], 16) / 255 : 1);
+    if ((m = /^rgba?\(([^)]+)\)$/i.exec(v))) { const p = m[1].split(/[\s,\/]+/).filter(Boolean).map(parseFloat); return [p[0], p[1], p[2], p[3] == null ? 1 : p[3]]; }
+    if ((m = /^hsla?\(([^)]+)\)$/i.exec(v))) {
+      const p = m[1].split(/[\s,\/]+/).filter(Boolean).map(parseFloat), h = p[0] / 360, sa = p[1] / 100, l = p[2] / 100;
+      const q = l < 0.5 ? l * (1 + sa) : l + sa - l * sa, pp = 2 * l - q;
+      const f = (t) => { t = (t + 1) % 1; return 255 * (t < 1 / 6 ? pp + (q - pp) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? pp + (q - pp) * (2 / 3 - t) * 6 : pp); };
+      return [f(h + 1 / 3), f(h), f(h - 1 / 3), p[3] == null ? 1 : p[3]];
+    }
+    return null;
+  }
+  function lighten(v, k) {
+    if (Array.isArray(v)) return v.map((x) => lighten(x, k));
+    if (v && typeof v === 'object' && Array.isArray(v.stops)) return Object.assign({}, v, { stops: v.stops.map((st) => [st[0], lighten(st[1], k)]) });
+    if (typeof v !== 'string') return v;
+    const c = parseColor(v.trim());
+    if (!c) return v;
+    const ch = c.slice(0, 3).map((x) => Math.round(x + (255 - x) * k));
+    return 'rgba(' + ch.join(',') + ',' + c[3] + ')';
   }
   async function loadStyle(dark) {
     const url = dark ? M.CONFIG.styles.dark : M.CONFIG.styles.light;
@@ -46,8 +69,11 @@
       style.glyphs = style.glyphs || M.CONFIG.glyphs;
       // dezenter: POI-Icons ausblenden, damit Haltestellen & Fahrzeuge im Vordergrund stehen
       style.layers = (style.layers || []).filter((l) => !/^poi/.test(l.id));
-      // dunkle Karte passend zum Sheet (#131418)
-      if (dark) style.layers.forEach((l) => { if (l.type === 'background') l.paint = Object.assign({}, l.paint, { 'background-color': '#17181C' }); });
+      // dunkle Karte passend zum Sheet – etwas aufgehellt, damit Straßen und Flächen besser zu erkennen sind
+      if (dark) style.layers.forEach((l) => {
+        if (l.type === 'background') l.paint = Object.assign({}, l.paint, { 'background-color': '#202227' });
+        else if ((l.type === 'fill' || l.type === 'line') && l.paint) Object.keys(l.paint).forEach((k) => { if (/color$/.test(k)) l.paint[k] = lighten(l.paint[k], 0.08); });
+      });
       return style;
     } catch (e) {
       console.warn('[Muvit] Vektorstil nicht ladbar, nutze Raster-Fallback', e);
@@ -131,10 +157,11 @@
     else if (mode === 'ferry') { badge(X, B, '#1C7FB0', false, '', small, ''); glyph(X, 'ferry'); }
     if (modeW) X += modeW + gap;
     badge(X, lineW, bg, mode === 'bus', label, numFont, fg);
-    // Echtzeit: dunkler runder Punkt oben rechts mit weißem Funk-Zeichen (wie in den Listen)
+    // Echtzeit: dunkler runder Punkt oben rechts mit weißem Funk-Zeichen und weißem Rand (wie in den Listen)
     if (rt === '1') {
-      const r = 7.5 * DPR, cx = pad + W - 1 * DPR, cy = pad - 1 * DPR;
-      x.beginPath(); x.arc(cx, cy, r + 1.5 * DPR, 0, Math.PI * 2); x.fillStyle = '#131418'; x.fill();
+      // weiß umrandet, etwas nach links unten versetzt (nicht an der oberen Kante)
+      const r = 7.5 * DPR, cx = pad + W - 2.5 * DPR, cy = pad + 1 * DPR;
+      x.beginPath(); x.arc(cx, cy, r + 1.6 * DPR, 0, Math.PI * 2); x.fillStyle = '#FFFFFF'; x.fill();
       x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.fillStyle = 'rgb(50,50,50)'; x.fill();
       if (window.Path2D && M.icons.rt) {
         const g = (16 * DPR) / 24;
@@ -361,7 +388,8 @@
     }
   }
   Mp.addStops = function (raw) {
-    M.Transit.groupStops(raw).forEach((g) => {
+    // nur Haltestellen im Bediengebiet der MVB
+    M.Transit.groupStops((raw || []).filter((x) => M.inService(x.lat, x.lon))).forEach((g) => {
       const key = g.name + '@' + g.lat.toFixed(3) + ',' + g.lon.toFixed(3);
       g.key = key;
       Mp.stopGroups.set(key, g);
@@ -452,8 +480,16 @@
     }
     scheduleVehicles();
   }
+  /** Haltezeit an jeder Haltestelle: Die Daten haben oft Ankunft = Abfahrt. Muvit lässt die Bahn kurz vor der
+      Ankunftszeit halten und erst kurz nach der Abfahrtszeit losfahren – mit Anfahren und Bremsen. */
+  const segDwell = (s) => Math.min(15000, Math.max(0, (s.arr - s.dep) * 0.22));
+  function segFrac(s, t) {
+    const dw = segDwell(s), span = Math.max(1, s.arr - s.dep - 2 * dw);
+    const f = Math.min(1, Math.max(0, (t - s.dep - dw) / span));
+    return f * f * (3 - 2 * f);
+  }
   function posOnSeg(s, t) {
-    const f = Math.min(1, Math.max(0, (t - s.dep) / Math.max(1, s.arr - s.dep)));
+    const f = segFrac(s, t);
     const total = s.cum[s.cum.length - 1];
     const target = f * total;
     let i = 1;
@@ -469,7 +505,7 @@
       let pos = null, seg = arr[0], moving = false;
       for (let i = 0; i < arr.length; i++) {
         const s = arr[i];
-        if (t >= s.dep && t <= s.arr) { pos = posOnSeg(s, t); seg = s; moving = true; break; }
+        if (t >= s.dep && t <= s.arr) { const f = segFrac(s, t); pos = posOnSeg(s, t); seg = s; moving = f > 0 && f < 1; break; }
         if (t < s.dep) {
           if (i === 0 && s.dep - t > 90000) break;           // fährt erst später los
           const c = s.coords[0], n = s.coords[1] || c;      // steht an der Haltestelle
@@ -575,6 +611,25 @@
     Mp._route = { lines: fc(lines), pts: fc(pts) };
     setRouteData(Mp._route);
     if (opts.fit !== false) Mp.fitCoords(trip.coords.length ? trip.coords : trip.stops.map((s) => [s.lon, s.lat]));
+  };
+  /** Liniennetz: alle Verläufe in Linienfarbe (Netzplan in der App) */
+  Mp.drawNetwork = function (lines, opts) {
+    if (!Mp.map) return;
+    opts = opts || {};
+    Mp.clearRoute();
+    const feats = [], all = [], pts = new Map();
+    lines.forEach((L) => {
+      const color = M.routeColor(L.line);
+      (L.variants || [L.main]).slice(0, 3).forEach((v) => {
+        if (!v || !v.coords || v.coords.length < 2) return;
+        feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: v.coords }, properties: { color, walk: false } });
+        v.coords.forEach((c) => all.push(c));
+        [v.stops[0], v.stops[v.stops.length - 1]].forEach((s) => { if (s) pts.set(s.name, pt(s, color, true)); });
+      });
+    });
+    Mp._route = { lines: fc(feats), pts: fc(Array.from(pts.values())) };
+    setRouteData(Mp._route);
+    if (opts.fit !== false && all.length) Mp.fitCoords(all);
   };
   /** Fahrzeugmarker für den Linienverlauf */
   Mp.setTripVehicle = function (pos, line) {
