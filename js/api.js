@@ -123,6 +123,7 @@
     return out;
   }
   M.splitInfo = splitInfo;
+  M.WORK_RE = WORK_RE;
 
   /* =====================================================================
      1) Transitous / MOTIS 2
@@ -212,7 +213,8 @@
         time: d(time || planned), planned: d(planned || time),
         delay: leg.realTime ? M.delayMin(time, planned) : null,
         platform: p.track || p.scheduledTrack || '', plannedPlatform: p.scheduledTrack || '',
-        cancelled: !!p.cancelled, alerts: alertList(p.alerts), wheelchair: wcOf(p)
+        cancelled: !!p.cancelled, alerts: alertList(p.alerts), wheelchair: wcOf(p),
+        noPickup: p.pickupType === 'NOT_ALLOWED', noDrop: p.dropoffType === 'NOT_ALLOWED'
       };
     }
 
@@ -232,7 +234,7 @@
           id: p.stopId || '', name: LN(p.name), lat: p.lat, lon: p.lon,
           arr: d(p.arrival), arrPlanned: d(p.scheduledArrival), dep: d(p.departure), depPlanned: d(p.scheduledDeparture),
           platform: p.track || p.scheduledTrack || '', plannedPlatform: p.scheduledTrack || '', cancelled: !!p.cancelled,
-          alerts: alertList(p.alerts), wheelchair: wcOf(p)
+          alerts: alertList(p.alerts), wheelchair: wcOf(p), noPickup: p.pickupType === 'NOT_ALLOWED'
         })),
         coords: g && g.points ? M.decodePolyline(g.points, g.precision == null ? 6 : g.precision) : [],
         distance: l.distance || (g && g.length) || null,
@@ -295,12 +297,21 @@
     return {
       name: 'Transitous',
       modesOut,
-      async search(text, near) {
-        const c = near || M.CONFIG.center;
-        const res = await call('geocode', ['v1'], '/geocode', {
-          text, language: 'de', numResults: 10, place: c.lat.toFixed(5) + ',' + c.lon.toFixed(5), placeBias: 3
-        }, { ttl: 60000 });
-        return (res || []).map(nMatch);
+      /** Suche: nur Haltestellen im Bediengebiet der MVB (Magdeburg, Randgebiete, Biederitz) */
+      async search(text) {
+        const B = M.CONFIG.serviceBBox, c = M.CONFIG.center;
+        const params = {
+          text, language: 'de', numResults: 20, type: 'STOP', place: c.lat.toFixed(5) + ',' + c.lon.toFixed(5), placeBias: 5,
+          min: B.minLat + ',' + B.maxLon, max: B.maxLat + ',' + B.minLon
+        };
+        let res;
+        try { res = await call('geocode', ['v1'], '/geocode', params, { ttl: 60000 }); }
+        catch (e) {
+          // ältere Server ohne Gebietsfilter: ohne Filter fragen, unten selbst filtern
+          if (e.status !== 400) throw e;
+          res = await call('geocode', ['v1'], '/geocode', { text, language: 'de', numResults: 30, place: params.place, placeBias: 5 }, { ttl: 60000 });
+        }
+        return (res || []).map(nMatch).filter((x) => x.type === 'stop' && M.inService(x.lat, x.lon)).slice(0, 12);
       },
       async reverse(lat, lon) {
         const res = await call('reverse', ['v1'], '/reverse-geocode', { place: lat.toFixed(6) + ',' + lon.toFixed(6) }, { ttl: 120000 });
@@ -357,23 +368,24 @@
         const L = all[mi];
         const legs = [L];
         for (let k = mi + 1; k < all.length && L.tripId && all[k].tripId === L.tripId; k++) legs.push(all[k]);
-        const cont = all[mi + legs.length] || null;
+        const nx = all[mi + legs.length] || null;
+        const cont = nx && nx.line && L.line && nx.line.name !== L.line.name ? nx : null;
         const rest = [];
         if (cont) for (let k = mi + legs.length; k < all.length && (rest.length === 0 || (cont.tripId && all[k].tripId === cont.tripId)); k++) rest.push(all[k]);
         const stopsOf = (ls) => {
           const out = [];
           ls.forEach((leg, i) => {
-            if (i === 0) out.push({ id: leg.from.id, name: leg.from.name, lat: leg.from.lat, lon: leg.from.lon, arr: null, arrPlanned: null, dep: leg.from.time, depPlanned: leg.from.planned, platform: leg.from.platform, plannedPlatform: leg.from.plannedPlatform, cancelled: leg.from.cancelled, alerts: leg.from.alerts, wheelchair: leg.from.wheelchair });
+            if (i === 0) out.push({ id: leg.from.id, name: leg.from.name, lat: leg.from.lat, lon: leg.from.lon, arr: null, arrPlanned: null, dep: leg.from.time, depPlanned: leg.from.planned, platform: leg.from.platform, plannedPlatform: leg.from.plannedPlatform, cancelled: leg.from.cancelled, alerts: leg.from.alerts, wheelchair: leg.from.wheelchair, noPickup: leg.from.noPickup });
             leg.stops.forEach((x) => out.push(x));
-            out.push({ id: leg.to.id, name: leg.to.name, lat: leg.to.lat, lon: leg.to.lon, arr: leg.to.time, arrPlanned: leg.to.planned, dep: null, depPlanned: null, platform: leg.to.platform, plannedPlatform: leg.to.plannedPlatform, cancelled: leg.to.cancelled, alerts: leg.to.alerts, wheelchair: leg.to.wheelchair });
+            out.push({ id: leg.to.id, name: leg.to.name, lat: leg.to.lat, lon: leg.to.lon, arr: leg.to.time, arrPlanned: leg.to.planned, dep: null, depPlanned: null, platform: leg.to.platform, plannedPlatform: leg.to.plannedPlatform, cancelled: leg.to.cancelled, alerts: leg.to.alerts, wheelchair: leg.to.wheelchair, noPickup: true, noDrop: leg.to.noDrop });
           });
           return out;
         };
         const stops = [];
         legs.forEach((leg, i) => {
-          if (i === 0) stops.push({ id: leg.from.id, name: leg.from.name, lat: leg.from.lat, lon: leg.from.lon, arr: null, arrPlanned: null, dep: leg.from.time, depPlanned: leg.from.planned, platform: leg.from.platform, plannedPlatform: leg.from.plannedPlatform, cancelled: leg.from.cancelled, alerts: leg.from.alerts, wheelchair: leg.from.wheelchair });
+          if (i === 0) stops.push({ id: leg.from.id, name: leg.from.name, lat: leg.from.lat, lon: leg.from.lon, arr: null, arrPlanned: null, dep: leg.from.time, depPlanned: leg.from.planned, platform: leg.from.platform, plannedPlatform: leg.from.plannedPlatform, cancelled: leg.from.cancelled, alerts: leg.from.alerts, wheelchair: leg.from.wheelchair, noPickup: leg.from.noPickup });
           leg.stops.forEach((s) => stops.push(s));
-          stops.push({ id: leg.to.id, name: leg.to.name, lat: leg.to.lat, lon: leg.to.lon, arr: leg.to.time, arrPlanned: leg.to.planned, dep: null, depPlanned: null, platform: leg.to.platform, plannedPlatform: leg.to.plannedPlatform, cancelled: leg.to.cancelled, alerts: leg.to.alerts, wheelchair: leg.to.wheelchair });
+          stops.push({ id: leg.to.id, name: leg.to.name, lat: leg.to.lat, lon: leg.to.lon, arr: leg.to.time, arrPlanned: leg.to.planned, dep: null, depPlanned: null, platform: leg.to.platform, plannedPlatform: leg.to.plannedPlatform, cancelled: leg.to.cancelled, alerts: leg.to.alerts, wheelchair: leg.to.wheelchair, noPickup: true, noDrop: leg.to.noDrop });
         });
         return {
           tripId, line: L.line, headsign: L.headsign || stops[stops.length - 1].name, stops,
@@ -385,6 +397,31 @@
           next: cont ? { tripId: cont.tripId || '', line: cont.line, headsign: destName(cont.headsign, cont.from.name, rest[rest.length - 1].to.name), stops: stopsOf(rest), realtime: rest.some((l) => l.realtime), src: 'motis' } : null,
           src: 'motis'
         };
+      },
+      /** Alle Linien mit ihren Halten und Verläufen in einem Gebiet (auch Sonder- und Nachtlinien) */
+      async routes(b) {
+        const res = await call('routes', ['experimental'], '/map/routes', {
+          zoom: 16, min: b.minLat.toFixed(4) + ',' + b.maxLon.toFixed(4), max: b.maxLat.toFixed(4) + ',' + b.minLon.toFixed(4), language: 'de'
+        }, { ttl: 3600000, timeout: 30000 });
+        const stops = (res.stops || []).map((p) => (p ? { id: p.stopId || '', name: LN(p.name), lat: p.lat, lon: p.lon } : null));
+        const polys = (res.polylines || []).map((pl) => (pl && pl.polyline ? M.decodePolyline(pl.polyline.points, pl.polyline.precision == null ? 6 : pl.polyline.precision) : []));
+        const out = [];
+        (res.routes || []).forEach((r) => {
+          const seq = [], coords = [];
+          (r.segments || []).forEach((sg, i) => {
+            if (i === 0 && stops[sg.from]) seq.push(stops[sg.from]);
+            if (stops[sg.to]) seq.push(stops[sg.to]);
+            const pc = polys[sg.polyline] || [];
+            coords.push.apply(coords, coords.length ? pc.slice(1) : pc);
+          });
+          if (seq.length < 2) return;
+          (r.transitRoutes || []).forEach((tr) => {
+            const name = tr.shortName || tr.longName;
+            if (!name) return;
+            out.push({ line: mkLine(name, modeKey(r.mode), tr.color, tr.textColor, { routeId: tr.id || '', longName: tr.longName || '' }), stops: seq, coords });
+          });
+        });
+        return out;
       },
       async vehicles(b, zoom) {
         const now = Date.now();
@@ -503,8 +540,8 @@
     return {
       name: 'Deutsche Bahn',
       async search(text) {
-        const res = await get('/locations', { query: text, results: 10, stops: true, addresses: true, poi: true, language: 'de' }, { ttl: 60000 });
-        return (res || []).map(nLoc).filter(Boolean);
+        const res = await get('/locations', { query: text, results: 20, stops: true, addresses: false, poi: false, language: 'de' }, { ttl: 60000 });
+        return (res || []).map(nLoc).filter((x) => x && x.type === 'stop' && M.inService(x.lat, x.lon)).slice(0, 12);
       },
       async reverse(lat, lon) {
         const res = await get('/locations/nearby', { latitude: lat, longitude: lon, results: 1, distance: 300 }, { ttl: 120000 });
@@ -641,6 +678,8 @@
   };
   /** Ziel für „weiter als … nach …“: nie der Wechselhalt selbst, sonst die Endhaltestelle */
   const destName = (hs, at, last) => (hs && norm(hs) !== norm(at) ? hs : (last || hs || ''));
+  /** Fährt die Fahrt nach Halt h noch mit Fahrgästen weiter (nicht nur leer ins Depot)? */
+  M.servesAfter = (t, h) => t.stops.slice(h + 1).some((s, i, a) => !s.cancelled && (!s.noPickup || (i === a.length - 1 && !s.noDrop)));
   /** Abfahrtstafel aufräumen:
       - Fahrten, die hier enden oder an denen man nicht einsteigen kann, sind keine Abfahrten
       - Ein Fahrzeug, das die Linie wechselt, erscheint in manchen Daten doppelt (alte und neue Linie
@@ -690,32 +729,33 @@
       if (!x || !x.tripId || x.src !== 'motis' || !x.line || (x.line.mode !== 'tram' && x.line.mode !== 'bus')) return Promise.resolve(null);
       return memo(M.Transit.contKey(x), async () => {
         const t = await M.Transit.trip(x.tripId, 'motis');
-        // Ziel an der Haltestelle (z. B. Linie 1 „City Carré“), auch wenn die Fahrt bis Klinikum Olvenstedt weitergeht
+        // Ziel an der Haltestelle (z. B. Linie 1 „City Carré“), auch wenn die Fahrt in den Daten weitergeht
         const h = M.headIdx(t, x.headsign);
+        // Fahrt endet hier: Umlauf aus den Daten (Sitzenbleiben), nur als andere Linie und nur an Wechselhalten
         if (h < 0 && t.continues) return M.isChangeStop(t.continues.at) ? t.continues : null;
         const end = t.stops[h >= 0 ? h : t.stops.length - 1];
         // nur an echten Linienwechsel-Punkten (City Carré, Hbf) – an Endstellen fährt einfach die nächste Linie
         if (!end || !M.isChangeStop(end.name)) return null;
-        const arr = end && (end.arrPlanned || end.arr || end.depPlanned || end.dep);
-        if (!arr) return null;
-        const depHere = end.depPlanned || end.dep || null;   // fährt das Fahrzeug selbst weiter (gleiche Fahrt)?
-        const r = await M.Transit.departures({ id: end.id, name: end.name, lat: end.lat, lon: end.lon, type: 'stop', src: 'motis' }, { n: 60, time: bucket(arr.getTime() - 2 * 60000) });
         const first = t.stops[0], last = t.stops[t.stops.length - 1];
+        // geht es nach dem Ziel nur noch ohne Fahrgäste weiter (z. B. ins Depot), gibt es keine Weiterfahrt
+        if (h >= 0 && !M.servesAfter(t, h)) return null;
+        const arr = end.arrPlanned || end.arr || end.depPlanned || end.dep;
+        if (!arr) return null;
+        const depHere = end.depPlanned || end.dep || null;
         const rule = M.ruleLine(t.line, end.name);
-        const cands = r.list.filter((d) => d.line.mode === t.line.mode && d.line.name !== t.line.name && !d.cancelled && d.tripId !== x.tripId &&
-          d.planned - arr >= -60000 && d.planned - arr <= 12 * 60000 && samePlatform(d.platform, end.platform) &&
+        const r = await M.Transit.departures({ id: end.id, name: end.name, lat: end.lat, lon: end.lon, type: 'stop', src: 'motis' }, { n: 60, time: bucket(arr.getTime() - 2 * 60000) });
+        // nur belegte Weiterfahrten: dasselbe Fahrzeug in den Daten doppelt (gleiche Zeit, gleicher Start bzw. gleiches Ziel)
+        // oder ein bekannter Wechsel (z. B. 2 → 13), dessen Fahrt hier kurz danach am selben Bahnsteig beginnt
+        const cands = r.list.filter((d) => d.line.mode === t.line.mode && d.line.name !== t.line.name && !d.cancelled && d.tripId !== x.tripId && samePlatform(d.platform, end.platform) &&
           (h >= 0
-            // dasselbe Fahrzeug fährt weiter bis zum letzten Halt: die neue Linie muss dorthin fahren
-            ? d.dest && sameStop(d.dest, last) && ((d.origin && sameStop(d.origin, end)) || (depHere && Math.abs(d.planned - depHere) <= 90000))
-            // Fahrt endet hier: Linie beginnt hier, oder dieselbe Bahn ist in den Daten doppelt hinterlegt (gleicher Start)
-            : (d.origin && sameStop(d.origin, end)) || (d.origin && sameStop(d.origin, first) && Math.abs(d.planned - arr) <= 3 * 60000)));
-        // bekannter Wechsel (z. B. 2 → 13) vor gleichem Start (Zwilling) vor der frühesten Abfahrt
-        const score = (d) => (rule && d.line.name === rule.name ? 0 : d.origin && sameStop(d.origin, first) ? 1 : 2);
+            ? depHere && Math.abs(d.planned - depHere) <= 90000 && d.dest && sameStop(d.dest, last)
+            : (d.origin && sameStop(d.origin, first) && Math.abs(d.planned - arr) <= 3 * 60000) ||
+              (rule && d.line.name === rule.name && d.origin && sameStop(d.origin, end) && d.planned - arr >= -60000 && d.planned - arr <= 12 * 60000)));
+        const score = (d) => (rule && d.line.name === rule.name ? 0 : 1);
         const c = cands.sort((a, b) => (score(a) - score(b)) || (a.planned - b.planned))[0];
-        // fährt dasselbe Fahrzeug weiter (Halte nach dem Ziel), ist dessen letzter Halt das Ziel der neuen Linie
         if (c) return { line: c.line, headsign: h >= 0 ? last.name : destName(c.headsign, end.name, c.dest && c.dest.name), at: end.name, tripId: c.tripId, src: 'motis', time: c.time };
-        // Linie der Weiterfahrt nicht in den Daten, aber die Fahrt geht über das Ziel hinaus (bekannte Wechsel benennen)
-        return h >= 0 ? { line: rule, headsign: last.name, at: end.name, tripId: '', src: 'motis' } : null;
+        // Daten nennen die neue Linie nicht: nur bekannte Wechsel, und nur wenn das Fahrzeug laut Daten weiterfährt
+        return h >= 0 && rule ? { line: rule, headsign: last.name, at: end.name, tripId: '', src: 'motis' } : null;
       });
     },
     /** Schlüssel der Weiterfahrt – das angezeigte Ziel gehört dazu (gleiche Fahrt, anderes Ziel = anderer Wechselhalt) */
@@ -738,12 +778,15 @@
         return hit && hit.headsign ? hit.headsign : null;
       });
     },
-    /** „Kommt als …“: Beginnt die Fahrt hier, endet dann kurz vorher am selben Bahnsteig eine andere Linie? */
+    /** „Kommt als …“: Beginnt die Fahrt hier und ist ein bekannter Linienwechsel (z. B. 13 kommt als 2),
+        endet dann kurz vorher am selben Bahnsteig die alte Linie? (Zwillinge erkennt schon die Abfahrtstafel) */
     comesAs(x) {
       if (!x || !x.tripId || x.src !== 'motis' || !x.line || (x.line.mode !== 'tram' && x.line.mode !== 'bus') || !x.origin || !x.stop || !sameStop(x.origin, x.stop) || !M.isChangeStop(x.stop.name)) return Promise.resolve(null);
+      const from = M.ruleFrom(x.line, x.stop.name);
+      if (!from) return Promise.resolve(null);
       return memo('k|' + x.tripId, async () => {
         const r = await M.Transit.departures(x.stop, { n: 60, arrivals: true, time: bucket(x.planned.getTime() - 14 * 60000) });
-        const c = r.list.filter((a) => a.line.mode === x.line.mode && a.line.name !== x.line.name && !a.cancelled && a.dest && sameStop(a.dest, x.stop) &&
+        const c = r.list.filter((a) => a.line.mode === x.line.mode && a.line.name === from.name && !a.cancelled && a.dest && sameStop(a.dest, x.stop) &&
           x.planned - a.planned >= -60000 && x.planned - a.planned <= 12 * 60000 && samePlatform(a.platform, x.platform))
           .sort((a, b) => b.planned - a.planned)[0];
         return c ? { line: c.line, from: c.origin ? c.origin.name : '', tripId: c.tripId, src: 'motis' } : null;
@@ -850,6 +893,29 @@
       const seen = new Set(), list = [];
       top.concat(Array.from(pick.values())).forEach((g) => { if (!seen.has(g.name)) { seen.add(g.name); list.push(g); } });
       return { list, top };
+    },
+
+    /** Alle Linien im Bediengebiet der MVB mit ihren Verläufen – auch Sonderlinien (z. B. 15) und Nachtlinien.
+        Tram und Bus: überwiegend in Magdeburg (keine Regionalbusse aus dem Umland), Züge: mit Halt in Magdeburg. */
+    async cityRoutes() {
+      const raw = await Motis.routes(M.CONFIG.serviceBBox);
+      const lines = new Map();
+      raw.forEach((r) => {
+        const inMd = r.stops.filter((s) => M.inService(s.lat, s.lon)).length;
+        const ok = r.line.mode === 'tram' || r.line.mode === 'bus' ? inMd / r.stops.length >= 0.6 : r.stops.some((s) => M.inMagdeburg(s.lat, s.lon));
+        if (!ok) return;
+        const key = r.line.mode + '|' + r.line.name;
+        let L = lines.get(key);
+        if (!L) { L = { line: r.line, variants: [] }; lines.set(key, L); }
+        L.variants.push({ stops: r.stops, coords: r.coords });
+      });
+      return Array.from(lines.values()).map((L) => {
+        // Hauptverlauf: der längste; Gegenrichtung: der längste mit vertauschten Endstellen
+        const v = L.variants.sort((a, b) => b.stops.length - a.stops.length);
+        const main = v[0], a = main.stops[0], z = main.stops[main.stops.length - 1];
+        const back = v.find((x) => x !== main && sameStop(x.stops[0], z)) || null;
+        return { line: L.line, main, back, variants: v, termini: [a.name, z.name].filter((n, i, arr) => arr.indexOf(n) === i) };
+      });
     },
 
     /** Alle Linien einer Stadt: Abfahrten wichtiger Haltestellen, über das ganze Stadtgebiet verteilt */
