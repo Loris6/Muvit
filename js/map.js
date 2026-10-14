@@ -131,13 +131,14 @@
     else if (mode === 'ferry') { badge(X, B, '#1C7FB0', false, '', small, ''); glyph(X, 'ferry'); }
     if (modeW) X += modeW + gap;
     badge(X, lineW, bg, mode === 'bus', label, numFont, fg);
-    // Echtzeit: kleine Kapsel (RGB 50,50,50) mit weißem WLAN-Zeichen oben rechts
+    // Echtzeit: dunkler runder Punkt oben rechts mit weißem Funk-Zeichen (wie in den Listen)
     if (rt === '1') {
-      const pw = 17 * DPR, ph = 11 * DPR, px = pad + W - pw + 5 * DPR, py = pad - 4 * DPR;
-      roundRect(x, px, py, pw, ph, ph / 2); x.fillStyle = 'rgb(50,50,50)'; x.fill();
-      if (window.Path2D && M.icons.wifi2) {
-        const g = (9 * DPR) / 24;
-        x.save(); x.translate(px + pw / 2 - 12 * g, py + ph / 2 - 12 * g); x.scale(g, g); x.fillStyle = '#FFFFFF'; x.fill(new Path2D(M.icons.wifi2)); x.restore();
+      const r = 7.5 * DPR, cx = pad + W - 1 * DPR, cy = pad - 1 * DPR;
+      x.beginPath(); x.arc(cx, cy, r + 1.5 * DPR, 0, Math.PI * 2); x.fillStyle = '#131418'; x.fill();
+      x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.fillStyle = 'rgb(50,50,50)'; x.fill();
+      if (window.Path2D && M.icons.rt) {
+        const g = (16 * DPR) / 24;
+        x.save(); x.translate(cx - 12 * g, cy - 12 * g); x.scale(g, g); x.fillStyle = '#FFFFFF'; x.fill(new Path2D(M.icons.rt)); x.restore();
       }
     }
     return { width: c.width, height: c.height, data: x.getImageData(0, 0, c.width, c.height).data };

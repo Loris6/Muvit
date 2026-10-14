@@ -11,6 +11,11 @@
     // Haltestellen, an denen MVB-Fahrzeuge die Linie wechseln (Durchläufer). An normalen Endstellen
     // (z. B. Klinikum Olvenstedt) zeigt Muvit keinen Linienwechsel – dort fährt einfach die nächste Linie ab.
     changeStops: ['City Carré', 'Hauptbahnhof'],
+    /** bekannte Linienwechsel der MVB – nur, um die neue Linie zu benennen, wenn die Daten sie nicht nennen */
+    lineChanges: [
+      { line: '1', at: 'City Carré', to: '5' },
+      { line: '2', at: 'City Carré', to: '13' }
+    ],
     // Mitteilungen bei geschlossener App (Web Push) – Adresse des eigenen Push-Dienstes, siehe push/README.md
     push: { server: '', vapidPublic: '' },
     // Stadtgebiet Magdeburg (grob) – für Tarifhinweise
@@ -45,6 +50,12 @@
   const normName = (n) => M.localName(n || '').toLowerCase().replace(/[^a-z0-9äöüß]/g, '');
   /** Linienwechsel-Haltestelle (City Carré, Hauptbahnhof)? */
   M.isChangeStop = (name) => { const n = normName(name); return !!n && M.CONFIG.changeStops.some((c) => { const k = normName(c); return n === k || n.startsWith(k); }); };
+  /** Linie nach einem bekannten Linienwechsel (z. B. 1 → 5 an City Carré), sonst null */
+  M.ruleLine = (line, at) => {
+    if (!line || !M.mkLine) return null;
+    const r = (M.CONFIG.lineChanges || []).find((x) => x.line === line.name && normName(at).startsWith(normName(x.at)));
+    return r ? M.mkLine(r.to, line.mode) : null;
+  };
   /** „Magdeburg, Sudenburg“ → „Sudenburg“ */
   M.localArea = (a) => String(a || '').split(',').map((x) => x.trim()).filter((x) => x && !M.isMagdeburgName(x)).join(', ');
 

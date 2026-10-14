@@ -34,10 +34,34 @@
         tags: ['Ab 2. Fahrt günstiger', 'Kinder fahren mit']
       },
       {
+        id: 'woche', cls: 't3', cat: 'zeit', name: 'Wochenkarte', zone: 'Preisstufe MD',
+        price: null,
+        note: 'Sieben Tage beliebig oft fahren im Stadtgebiet Magdeburg. Aktuellen Preis bitte in der marego-Tarifauskunft prüfen.',
+        tags: ['7 Tage']
+      },
+      {
+        id: 'monat', cls: 't3', cat: 'zeit', name: 'Monatskarte', zone: 'Preisstufe MD',
+        price: null,
+        note: 'Einen Monat beliebig oft fahren im Stadtgebiet Magdeburg – ohne Abo. Mit dem Deutschlandticket oft günstiger.',
+        tags: ['1 Monat', 'Ohne Abo']
+      },
+      {
         id: 'dt', cls: 't4', name: 'Deutschlandticket', zone: 'bundesweit',
         price: 63.00, unit: '/ Monat',
         note: 'Unbegrenzt im gesamten Nah- und Regionalverkehr in Deutschland: Bus, Straßenbahn, U-/S-Bahn, RE/RB. Nicht gültig in ICE, IC und EC. Preis seit 01.01.2026.',
         tags: ['Monatsabo', 'Ganz Deutschland', 'Kein Fernverkehr']
+      },
+      {
+        id: 'dtjob', cls: 't4', cat: 'abo', name: 'Deutschlandticket Job', zone: 'bundesweit',
+        price: null,
+        note: 'Das Deutschlandticket über den Arbeitgeber: mindestens 25 % Zuschuss vom Arbeitgeber plus 5 % Rabatt. Frag in deiner Personalabteilung nach.',
+        tags: ['Arbeitgeber-Zuschuss', 'Monatsabo']
+      },
+      {
+        id: 'dtsem', cls: 't4', cat: 'abo', name: 'Deutschlandsemesterticket', zone: 'bundesweit',
+        price: null,
+        note: 'Für Studierende teilnehmender Hochschulen: 60 % des Deutschlandticket-Preises, abgerechnet über den Semesterbeitrag.',
+        tags: ['Studium', 'Semester']
       },
       {
         id: 'abo', cls: 't6', name: 'Abo-Monatskarte (persönlich)', zone: 'marego',

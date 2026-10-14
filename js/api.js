@@ -334,6 +334,7 @@
           time: q.time || null, arriveBy: q.arriveBy ? true : null,
           numItineraries: q.n || 5, language: 'de',
           transitModes: modesOut(q.modes), maxTransfers: q.maxTransfers != null ? q.maxTransfers : null,
+          pedestrianProfile: q.wheelchair ? 'WHEELCHAIR' : null,
           pageCursor: q.cursor || null
         };
         if (vias.length) {
@@ -380,8 +381,8 @@
           coords: [].concat.apply([], legs.map((l) => l.coords)), realtime: legs.some((l) => l.realtime),
           alerts: alertList([].concat.apply([], legs.map((l) => l.alerts))),
           notes: [].concat.apply([], legs.map((l) => l.notes || [])).filter((n, i, a) => a.findIndex((m) => m.text === n.text) === i),
-          continues: cont ? { line: cont.line, headsign: cont.headsign || cont.to.name, at: cont.from.name, tripId: cont.tripId || '', src: 'motis' } : null,
-          next: cont ? { tripId: cont.tripId || '', line: cont.line, headsign: cont.headsign || cont.to.name, stops: stopsOf(rest), realtime: rest.some((l) => l.realtime), src: 'motis' } : null,
+          continues: cont ? { line: cont.line, headsign: destName(cont.headsign, cont.from.name, rest[rest.length - 1].to.name), at: cont.from.name, tripId: cont.tripId || '', src: 'motis' } : null,
+          next: cont ? { tripId: cont.tripId || '', line: cont.line, headsign: destName(cont.headsign, cont.from.name, rest[rest.length - 1].to.name), stops: stopsOf(rest), realtime: rest.some((l) => l.realtime), src: 'motis' } : null,
           src: 'motis'
         };
       },
@@ -631,12 +632,15 @@
   /** Fährt das Fahrzeug über sein angezeigtes Ziel hinaus (Ziel ≠ letzter Halt)? → wechselt dort die Linie */
   const isThrough = (x) => !!(x.dest && x.headsign && norm(x.dest.name) !== norm(x.headsign));
   /** Halt, der dem angezeigten Ziel entspricht (vor dem letzten Halt) – dort wechselt die Linie */
-  M.headIdx = function (t) {
-    const h = norm(t.headsign);
+  M.headIdx = function (t, hs) {
+    // angezeigtes Ziel an der Haltestelle (z. B. „City Carré“) hat Vorrang vor dem Ziel der Fahrt (oft die letzte Haltestelle)
+    const h = norm(hs || t.headsign);
     if (!h) return -1;
     for (let i = 1; i < t.stops.length - 1; i++) if (norm(t.stops[i].name) === h) return i;
     return -1;
   };
+  /** Ziel für „weiter als … nach …“: nie der Wechselhalt selbst, sonst die Endhaltestelle */
+  const destName = (hs, at, last) => (hs && norm(hs) !== norm(at) ? hs : (last || hs || ''));
   /** Abfahrtstafel aufräumen:
       - Fahrten, die hier enden oder an denen man nicht einsteigen kann, sind keine Abfahrten
       - Ein Fahrzeug, das die Linie wechselt, erscheint in manchen Daten doppelt (alte und neue Linie
@@ -684,10 +688,11 @@
         am selben Bahnsteig eine andere Linie desselben Verkehrsmittels beginnt (Durchläufer). */
     continuation(x) {
       if (!x || !x.tripId || x.src !== 'motis' || !x.line || (x.line.mode !== 'tram' && x.line.mode !== 'bus')) return Promise.resolve(null);
-      return memo('c|' + x.tripId, async () => {
+      return memo(M.Transit.contKey(x), async () => {
         const t = await M.Transit.trip(x.tripId, 'motis');
-        if (t.continues) return M.isChangeStop(t.continues.at) ? t.continues : null;
-        const h = M.headIdx(t);
+        // Ziel an der Haltestelle (z. B. Linie 1 „City Carré“), auch wenn die Fahrt bis Klinikum Olvenstedt weitergeht
+        const h = M.headIdx(t, x.headsign);
+        if (h < 0 && t.continues) return M.isChangeStop(t.continues.at) ? t.continues : null;
         const end = t.stops[h >= 0 ? h : t.stops.length - 1];
         // nur an echten Linienwechsel-Punkten (City Carré, Hbf) – an Endstellen fährt einfach die nächste Linie
         if (!end || !M.isChangeStop(end.name)) return null;
@@ -695,14 +700,42 @@
         if (!arr) return null;
         const depHere = end.depPlanned || end.dep || null;   // fährt das Fahrzeug selbst weiter (gleiche Fahrt)?
         const r = await M.Transit.departures({ id: end.id, name: end.name, lat: end.lat, lon: end.lon, type: 'stop', src: 'motis' }, { n: 60, time: bucket(arr.getTime() - 2 * 60000) });
-        const last = t.stops[t.stops.length - 1];
-        const c = r.list.filter((d) => d.line.mode === t.line.mode && d.line.name !== t.line.name && !d.cancelled && d.tripId !== x.tripId &&
-          ((d.origin && sameStop(d.origin, end)) || (h >= 0 && depHere && Math.abs(d.planned - depHere) <= 90000 && d.dest && sameStop(d.dest, last))) &&
-          d.planned - arr >= -60000 && d.planned - arr <= 12 * 60000 && samePlatform(d.platform, end.platform))
-          .sort((a, b) => a.planned - b.planned)[0];
-        if (c) return { line: c.line, headsign: c.headsign, at: end.name, tripId: c.tripId, src: 'motis', time: c.time };
-        // Linie der Weiterfahrt unbekannt, aber die Fahrt geht über das Ziel hinaus
-        return h >= 0 ? { line: null, headsign: t.stops[t.stops.length - 1].name, at: end.name, tripId: '', src: 'motis' } : null;
+        const first = t.stops[0], last = t.stops[t.stops.length - 1];
+        const rule = M.ruleLine(t.line, end.name);
+        const cands = r.list.filter((d) => d.line.mode === t.line.mode && d.line.name !== t.line.name && !d.cancelled && d.tripId !== x.tripId &&
+          d.planned - arr >= -60000 && d.planned - arr <= 12 * 60000 && samePlatform(d.platform, end.platform) &&
+          (h >= 0
+            // dasselbe Fahrzeug fährt weiter bis zum letzten Halt: die neue Linie muss dorthin fahren
+            ? d.dest && sameStop(d.dest, last) && ((d.origin && sameStop(d.origin, end)) || (depHere && Math.abs(d.planned - depHere) <= 90000))
+            // Fahrt endet hier: Linie beginnt hier, oder dieselbe Bahn ist in den Daten doppelt hinterlegt (gleicher Start)
+            : (d.origin && sameStop(d.origin, end)) || (d.origin && sameStop(d.origin, first) && Math.abs(d.planned - arr) <= 3 * 60000)));
+        // bekannter Wechsel (z. B. 2 → 13) vor gleichem Start (Zwilling) vor der frühesten Abfahrt
+        const score = (d) => (rule && d.line.name === rule.name ? 0 : d.origin && sameStop(d.origin, first) ? 1 : 2);
+        const c = cands.sort((a, b) => (score(a) - score(b)) || (a.planned - b.planned))[0];
+        // fährt dasselbe Fahrzeug weiter (Halte nach dem Ziel), ist dessen letzter Halt das Ziel der neuen Linie
+        if (c) return { line: c.line, headsign: h >= 0 ? last.name : destName(c.headsign, end.name, c.dest && c.dest.name), at: end.name, tripId: c.tripId, src: 'motis', time: c.time };
+        // Linie der Weiterfahrt nicht in den Daten, aber die Fahrt geht über das Ziel hinaus (bekannte Wechsel benennen)
+        return h >= 0 ? { line: rule, headsign: last.name, at: end.name, tripId: '', src: 'motis' } : null;
+      });
+    },
+    /** Schlüssel der Weiterfahrt – das angezeigte Ziel gehört dazu (gleiche Fahrt, anderes Ziel = anderer Wechselhalt) */
+    contKey: (x) => 'c|' + x.tripId + '|' + norm(x.headsign),
+    /** Angezeigtes Ziel einer Fahrt an ihrem nächsten Halt (z. B. „City Carré“). Die Fahrt-Antwort nennt oft nur
+        die letzte Haltestelle – dann wäre der Linienwechsel unterwegs nicht zu erkennen. */
+    boardHeadsign(t) {
+      if (!t || t.src !== 'motis' || !t.tripId || !t.line || (t.line.mode !== 'tram' && t.line.mode !== 'bus')) return Promise.resolve(null);
+      const n = t.stops.length;
+      const ci = t.stops.findIndex((s, i) => i > 0 && i < n - 1 && M.isChangeStop(s.name));
+      if (ci < 0) return Promise.resolve(null);
+      return memo('h|' + t.tripId, async () => {
+        const now = Date.now();
+        let i = 0;
+        for (let k = 0; k < ci; k++) { i = k; const d = t.stops[k].dep || t.stops[k].depPlanned; if (d && +d > now - 60000) break; }
+        const s = t.stops[i], dep = s.depPlanned || s.dep;
+        if (!dep) return null;
+        const r = await Motis.departures({ id: s.id, name: s.name, lat: s.lat, lon: s.lon, type: 'stop', src: 'motis' }, { n: 60, time: bucket(+dep - 60000) });
+        const hit = r.list.find((d) => d.tripId === t.tripId);
+        return hit && hit.headsign ? hit.headsign : null;
       });
     },
     /** „Kommt als …“: Beginnt die Fahrt hier, endet dann kurz vorher am selben Bahnsteig eine andere Linie? */

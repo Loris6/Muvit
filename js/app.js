@@ -11,6 +11,7 @@
     if (!s.from) s.from = M.MY_LOCATION;
     if (!M.isMe(s.from) && !M.isMe(s.to) && s.from.name === s.to.name) { M.toast('Start und Ziel sind identisch', { type: 'err' }); return; }
     if (M.isMe(s.from) && M.isMe(s.to)) { M.toast('Bitte ein Ziel eingeben', { type: 'err' }); return; }
+    UI.toAuskunft();
     UI.home();
     UI.open('journeys', { query: M.queryFromState() });
   };
@@ -29,6 +30,7 @@
       }
     });
     M.on('place:action', ({ action, place }) => {
+      UI.toAuskunft();
       if (action === 'from') { M.state.from = place; M.emit('state'); if (M.state.to) App.search(); else UI.home(); }
       else if (action === 'to') { M.state.to = place; M.emit('state'); App.search(); }
       else if (action === 'dep') {
@@ -39,7 +41,7 @@
       }
       else if (action === 'nearby') UI.open('departures', { tab: 'near' });
     });
-    M.on('vehicle:select', (v) => UI.open('trip', { tripId: v.tripId }));
+    M.on('vehicle:select', (v) => { UI.toAuskunft(); UI.open('trip', { tripId: v.tripId }); });
     document.getElementById('locateBtn').innerHTML = icon('locate');
     document.getElementById('locateBtn').addEventListener('click', () => M.Map.locate());
 
@@ -85,6 +87,7 @@
       const v = sp.get('view');
       if (sp.get('alt')) setTimeout(() => M.Watch.openFromLink(sp.get('alt')), 900);
       else if (v === 'alternativen') setTimeout(() => M.Watch.openAlternatives(), 900);
+      else if (['tickets', 'dticket', 'mehr'].includes(sp.get('tab'))) UI.switchTab(sp.get('tab'));
       else if (v && M.Views[v] && v !== 'home') setTimeout(() => UI.open(v, {}), 500);
     } catch (e) { /* ignore */ }
   }

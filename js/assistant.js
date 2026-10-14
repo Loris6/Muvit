@@ -537,7 +537,7 @@
         } else if (c.kind === 'departures') {
           wrap.innerHTML = '<div class="hd">' + esc(c.stop.name) + '</div>' + c.list.map((x, i) => C.depRow(x, i, { alerts: false })).join('') +
             '<button class="pager" data-all>Alle Abfahrten</button>';
-          wrap.querySelectorAll('.dep').forEach((b) => b.addEventListener('click', () => { const x = c.list[+b.dataset.i]; UI.open('trip', { tripId: x.tripId, src: x.src, line: x.line, focusStop: c.stop.name }); }));
+          wrap.querySelectorAll('.dep').forEach((b) => b.addEventListener('click', () => { const x = c.list[+b.dataset.i]; UI.open('trip', { tripId: x.tripId, src: x.src, line: x.line, headsign: x.headsign, focusStop: c.stop.name }); }));
           M.$('[data-all]', wrap).addEventListener('click', () => UI.open('stop', { stop: c.stop }));
         } else if (c.kind === 'nearby') {
           wrap.innerHTML = c.list.slice(0, 5).map((s, i) => C.stopRow(s, i, { star: false, end: M.fmtDist(s.distance) + ' · ' + M.compass(s.bearing) })).join('');
