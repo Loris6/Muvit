@@ -16,7 +16,7 @@
     }
   };
   M.recentStops = recentStops;
-  const placeName = (p) => (!p ? '' : M.isMe(p) ? 'Mein Standort' : p.name);
+  const placeName = M.placeName = (p) => (!p ? '' : M.isMe(p) ? 'Mein Standort' : p.name);
   const bindAll = (root, sel, fn) => root.querySelectorAll(sel).forEach((el) => el.addEventListener('click', (e) => fn(el, e)));
   async function nearestStop(place) {
     const list = await M.Transit.nearby(place.lat, place.lon, 600);
@@ -83,18 +83,13 @@
         '<div class="grid6">' + TILES.map((t) => '<button class="gbtn" data-v="' + t[0] + '">' + icon(t[1]) + '<span>' + t[2] + '</span></button>').join('') + '</div>' +
         '<div class="sec">Verlauf<button class="all" data-allhist>Alle' + icon('right') + '</button></div>' +
         (routes.length ? '<div class="hist" data-fit-end>' + routes.map((r, i) => '<button class="hcard" data-r="' + i + '"><span class="rt"><i></i><b></b><i></i></span><span style="min-width:0"><div class="a">' + esc(placeName(r.from) || 'Mein Standort') + '</div><div class="b">' + esc(r.to.name) + '</div></span></button>').join('') + '</div>'
-          : '<div class="empty-hint" data-fit-end>Deine gesuchten Verbindungen erscheinen hier.</div>') +
-        '<div class="sec">Mehr</div>' +
-        C.lrow({ icon: 'star', title: 'Favoriten', sub: 'Gemerkte Haltestellen & Routen' }, 'fav') +
-        C.lrow({ icon: 'settings', title: 'Einstellungen', sub: 'Assistance (KI), Karte, Privatsphäre' }, 'set');
+          : '<div class="empty-hint" data-fit-end>Deine gesuchten Verbindungen erscheinen hier.</div>');
       bindAll(ctx.body, '[data-f]', () => App().pickFrom());
       bindAll(ctx.body, '[data-t]', () => App().pickTo());
       bindAll(ctx.body, '[data-swap]', (el) => { const f = s.from; s.from = s.to; s.to = f; el.classList.toggle('spin'); setTimeout(() => UI.refresh(), 250); });
-      bindAll(ctx.body, '.gbtn', (el) => UI.open(el.dataset.v, {}));
+      bindAll(ctx.body, '.gbtn', (el) => (el.dataset.v === 'tickets' ? UI.switchTab('tickets') : UI.open(el.dataset.v, {})));
       bindAll(ctx.body, '[data-allhist]', () => UI.open('history', {}));
       bindAll(ctx.body, '[data-r]', (el) => { const r = routes[+el.dataset.r]; s.from = r.from; s.to = r.to; s.via = []; App().search(); });
-      bindAll(ctx.body, '.lrow[data-i="fav"]', () => UI.open('departures', { tab: 'fav' }));
-      bindAll(ctx.body, '.lrow[data-i="set"]', () => UI.open('settings', {}));
       ctx.on('state', () => { if (ctx.alive()) UI.refresh(); });
     }
   };
@@ -262,9 +257,14 @@
     return { from: M.state.from || M.MY_LOCATION, to: M.state.to, via: M.state.via.map((v) => ({ place: v.place, stay: v.stay })), time: M.state.time, arriveBy: M.state.arriveBy, dticket: !!M.state.dticket };
   }
   M.queryFromState = queryFromState;
+  const ALL_MODES = ['tram', 'bus', 'sbahn', 'ubahn', 'regio', 'fern', 'ferry'];
   async function runJourneys(q, cursor) {
     const from = await M.concretePlace(q.from), to = await M.concretePlace(q.to);
-    return M.Transit.journeys({ from, to, via: q.via, time: q.time, arriveBy: q.arriveBy, cursor, modes: q.dticket ? ['tram', 'bus', 'sbahn', 'ubahn', 'regio', 'ferry'] : null });
+    // Reise-Optionen (Mehr › Reise-Optionen): Verkehrsmittel, Umstiege, barrierefrei
+    const t = M.settings.travel || {};
+    let modes = t.modes && t.modes.length && t.modes.length < ALL_MODES.length ? ALL_MODES.filter((m) => t.modes.includes(m)) : null;
+    if (q.dticket) modes = (modes || ALL_MODES).filter((m) => m !== 'fern');
+    return M.Transit.journeys({ from, to, via: q.via, time: q.time, arriveBy: q.arriveBy, cursor, modes, maxTransfers: t.maxTransfers != null ? t.maxTransfers : null, wheelchair: !!t.wheelchair });
   }
   M.runJourneys = runJourneys;
 
@@ -387,7 +387,7 @@
           if (i > 0 && !legs[i - 1].walk) {
             const gap = Math.max(0, M.delayMin(l.from.time, legs[i - 1].to.time));
             h += l.interline
-              ? '<div class="vb-walk thru"><span class="wl">' + gap + ' Min.</span><span>Sitzen bleiben – das Fahrzeug fährt weiter als <span class="ref">' + C.badges(l.line, { sm: true }) + '</span></span></div>'
+              ? '<div class="vb-walk thru"><span class="wl">' + gap + ' Min.</span><span>Sitzen bleiben – weiter als <span class="ref">' + C.badges(l.line, { sm: true }) + '</span> nach ' + esc(M.localName(l.headsign && M.localName(l.headsign) !== M.localName(l.from.name) ? l.headsign : l.to.name)) + '</span></div>'
               : '<div class="vb-walk"><span class="wl">' + gap + ' Min.</span>Umstieg · ' + gap + ' Min.</div>';
           }
           h += legHTML(l, i);
@@ -420,7 +420,7 @@
           const box = b.nextElementSibling; const open = box.classList.toggle('open');
           b.innerHTML = icon(open ? 'up' : 'down') + b.textContent;
         });
-        bindAll(ctx.body, '[data-trip]', (b) => { const l = j.legs[+b.dataset.trip]; if (l.tripId) UI.open('trip', { tripId: l.tripId, src: j.src, line: l.line, focusStop: l.from.name }); });
+        bindAll(ctx.body, '[data-trip]', (b) => { const l = j.legs[+b.dataset.trip]; if (l.tripId) UI.open('trip', { tripId: l.tripId, src: j.src, line: l.line, headsign: l.headsign, focusStop: l.from.name }); });
         bindAll(ctx.body, '[data-stop]', (b) => {
           const s = refs[b.dataset.stop];
           if (s && s.id) UI.open('stop', { stop: { id: s.id, name: s.name, lat: s.lat, lon: s.lon, type: 'stop', src: j.src } });
@@ -582,13 +582,15 @@
       if (p.line) ctx.extra(headHTML(p.line, '…'));
       ctx.body.innerHTML = C.skel(7);
 
-      /** Fahrt am angezeigten Ziel teilen (z. B. Linie 2 bis City Carré); der Rest ist die Weiterfahrt */
-      function cutTrip(t) {
-        const h = M.headIdx(t);
+      /** Fahrt am angezeigten Ziel teilen (z. B. Linie 2 bis City Carré, Linie 1 bis City Carré); der Rest ist die
+          Weiterfahrt als andere Linie. Maßgeblich ist das Ziel an der Haltestelle, nicht die letzte Haltestelle der Fahrt. */
+      function cutTrip(t, hs) {
+        const h = M.headIdx(t, hs);
         if (h < 0) return { main: t, rest: null };
         const ci = stopCoordIdx(t);
-        const main = Object.assign({}, t, { stops: t.stops.slice(0, h + 1), coords: t.coords.slice(0, (ci[h] || 0) + 1), next: null, continues: null });
-        const rest = Object.assign({}, t, { stops: t.stops.slice(h), coords: t.coords.slice(ci[h] || 0), headsign: t.stops[t.stops.length - 1].name, next: null, continues: null });
+        const at = t.stops[h].name;
+        const main = Object.assign({}, t, { headsign: at, stops: t.stops.slice(0, h + 1), coords: t.coords.slice(0, (ci[h] || 0) + 1), next: null, continues: null });
+        const rest = Object.assign({}, t, { line: M.ruleLine(t.line, at) || t.line, lineGuess: true, stops: t.stops.slice(h), coords: t.coords.slice(ci[h] || 0), headsign: t.stops[t.stops.length - 1].name, next: null, continues: null });
         return { main, rest };
       }
       /** Hinweise an einem Halt: Meldungen zur Haltestelle */
@@ -636,11 +638,11 @@
         });
         return { html: h + '</div>', next, key: rp.state + rp.idx };
       }
+      /** „Weiter als [Tram][13] nach Sudenburg“ – Ziel ist immer der letzte Halt der Weiterfahrt, nie der Wechselhalt */
       function gapHTML(info, n) {
-        const at = (info && info.at) || n.stops[0].name;
-        const txt = info && info.line === null
-          ? 'Fährt ab ' + esc(at) + ' weiter nach ' + esc(n.headsign || '')
-          : 'Fährt ab ' + esc(at) + ' weiter als <span class="ref">' + C.badges(n.line, { sm: true }) + '</span> nach ' + esc(n.headsign || (info && info.headsign) || '');
+        const dest = esc(M.localName(n.stops[n.stops.length - 1].name));
+        const line = (info && info.line) || (n.lineGuess && n.line !== st.trip.line ? n.line : null);
+        const txt = line ? 'Weiter als <span class="ref">' + C.badges(line, { sm: true }) + '</span> nach ' + dest : 'Weiter nach ' + dest;
         return '<div class="trip-gap"><div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">' + txt + '</span><span></span></div></div>';
       }
       function draw() {
@@ -648,7 +650,10 @@
         ctx.extra(headHTML(t.line, t.headsign, !!t.realtime));
         const main = partHTML(t, 0, now);
         const at = t.stops[Math.min(main.next, t.stops.length - 1)];
-        const info = C.infoLines({ alerts: t.alerts, notes: t.notes, line: t.line, stop: at, headsign: t.headsign }, 0, { max: 3 });
+        // Linienwechsel steht als eigener Abschnitt darunter – Texthinweise dazu nicht doppelt zeigen
+        const THRU = /(weiter\s+als|kommt\s+als|kommend\s+als|Linienwechsel)/i;
+        const notes = st.next ? (t.notes || []).filter((x) => !THRU.test(x.text)) : t.notes;
+        const info = C.infoLines({ alerts: t.alerts, notes, line: t.line, stop: at, headsign: t.headsign }, 0, { max: 3 });
         let h = (info ? '<div class="trip-info">' + info + '</div>' : '') + main.html;
         const parts = [t];
         if (st.next && st.next.stops && st.next.stops.length) {
@@ -675,28 +680,28 @@
         placeVehicle();
       }
       /** Weiterfahrt als andere Linie ermitteln und als zweiten Abschnitt anhängen */
+      /** Weiterfahrt als andere Linie ermitteln: dieselbe Fahrt über das Ziel hinaus (eigene Halte, neue Linie)
+          oder die Folgefahrt im Umlauf bzw. die am Wechselhalt beginnende Fahrt */
       async function loadNext() {
         const raw = st.raw;
-        if (!raw || st.nextTried === raw.tripId) return;
-        st.nextTried = raw.tripId;
-        if (raw.next && raw.next.stops && raw.next.stops.length && raw.continues && M.isChangeStop(raw.continues.at)) { st.next = raw.next; st.nextInfo = raw.continues; draw(); return; }
-        const c = await M.Transit.continuation({ tripId: raw.tripId, src: raw.src, line: raw.line, headsign: raw.headsign });
-        if (!ctx.alive()) return;
-        if (!c) {
-          // kein Linienwechsel (normale Endstelle): Weiterfahrt derselben Fahrt nicht zeigen
-          if (st.next && st.next === st.restShown) { st.next = null; st.nextInfo = null; draw(); }
-          return;
-        }
-        if (c.tripId) {
+        const key = raw && raw.tripId + '|' + (st.hs || '');
+        if (!raw || st.nextTried === key) return;
+        st.nextTried = key;
+        // Folgefahrt im selben Umlauf (nur wenn die Fahrt nicht schon unterwegs geteilt wurde)
+        if (!st.rest && raw.next && raw.next.stops && raw.next.stops.length && raw.continues && M.isChangeStop(raw.continues.at)) { st.next = raw.next; st.nextInfo = raw.continues; st.nextFor = key; draw(); return; }
+        const c = await M.Transit.continuation({ tripId: raw.tripId, src: raw.src, line: raw.line, headsign: st.hs || raw.headsign });
+        if (!ctx.alive() || !st.raw || st.raw.tripId !== raw.tripId) return;
+        st.cont = { key, c };
+        if (st.rest) { apply(st.raw, false); return; }
+        if (c && c.tripId) {
           const t2 = await M.Transit.trip(c.tripId, c.src || 'motis').catch(() => null);
           if (!t2 || !ctx.alive()) return;
           // nur ab dem Umstiegshalt (falls die Fahrt der neuen Linie früher beginnt)
-          const k = t2.stops.findIndex((x) => x.name === c.at);
-          st.next = k > 0 ? Object.assign({}, t2, { stops: t2.stops.slice(k) }) : t2;
-          st.nextInfo = c;
+          const k = t2.stops.findIndex((x) => M.localName(x.name) === M.localName(c.at));
+          if (k < 0 || k >= t2.stops.length - 1 || !st.raw || st.raw.tripId !== raw.tripId || st.rest) return;
+          st.next = Object.assign({}, t2, { stops: t2.stops.slice(k) });
+          st.nextInfo = c; st.nextFor = key;
           draw();
-        } else if (st.rest) {
-          st.nextInfo = { line: null, at: c.at, headsign: st.rest.headsign };
         }
       }
       function layoutRails(now) {
@@ -715,21 +720,41 @@
         idxs = idxs || stopCoordIdx(t);
         M.Map.setTripVehicle(prog.state === 'between' || prog.state === 'at' ? tripPos(t, idxs, prog) : null, (st.next && prog.state !== 'before' && st.trip && prog.idx >= st.trip.stops.length - 1) ? st.next.line : t.line);
       }
+      /** Fahrt teilen und anzeigen (auch erneut, wenn das Ziel an der Haltestelle erst nachträglich bekannt wird) */
+      function apply(raw, fit) {
+        const cut = cutTrip(raw, st.hs);
+        st.raw = raw; st.trip = cut.main; st.rest = cut.rest; st.updated = new Date(); idxs = null;
+        const key = raw.tripId + '|' + (st.hs || '');
+        // Weiterfahrt passt nicht mehr (anderes Ziel bekannt geworden) oder wird gleich neu aufgebaut
+        if (st.next && (st.next === st.restShown || (st.nextFor && st.nextFor !== key) || cut.rest)) { st.next = null; st.nextInfo = null; st.nextFor = null; }
+        // Weiterfahrt desselben Fahrzeugs zeigen (nur an City Carré / Hbf) – sofort, die neue Linie kommt aus den Daten
+        const known = st.cont && st.cont.key === key ? st.cont : null;
+        if (cut.rest && M.isChangeStop(cut.main.headsign) && !st.next && !(known && known.c === null)) {
+          const line = known && known.c.line;
+          const r = line ? Object.assign({}, cut.rest, { line, lineGuess: false }) : cut.rest;
+          st.next = st.restShown = r;
+          st.nextInfo = { line: line || null, at: cut.main.headsign, headsign: cut.rest.headsign };
+        }
+        M.Map.drawTrip(cut.main, { fit });
+        draw();
+        loadNext();
+      }
       async function load(manual) {
         try {
           const raw = await M.Transit.trip(p.tripId, p.src);
           if (!ctx.alive()) return;
           const first = !st.trip;
-          const cut = cutTrip(raw);
-          st.raw = raw; st.trip = cut.main; st.rest = cut.rest; st.updated = new Date(); idxs = null;
-          // Weiterfahrt derselben Fahrt sofort zeigen; die Linie wird nachgeladen
-          if (cut.rest && M.isChangeStop(cut.main.stops[cut.main.stops.length - 1].name) && (!st.next || st.next === st.restShown)) {
-            st.next = cut.rest; st.restShown = cut.rest;
-            if (!st.nextInfo || st.nextInfo.line === null) st.nextInfo = { line: null, at: cut.main.stops[cut.main.stops.length - 1].name, headsign: cut.rest.headsign };
+          if (st.hs === undefined) st.hs = p.headsign || null;
+          apply(raw, first || manual);
+          // ohne angezeigtes Ziel (z. B. Fahrzeug auf der Karte): Ziel am nächsten Halt nachschlagen
+          if (!st.hs && !st.rest && !st.hsTried) {
+            st.hsTried = true;
+            M.Transit.boardHeadsign(raw).then((hs) => {
+              if (!hs || !ctx.alive() || !st.raw || st.raw.tripId !== raw.tripId || M.headIdx(st.raw, hs) < 0) return;
+              st.hs = hs;
+              apply(st.raw, false);
+            });
           }
-          M.Map.drawTrip(cut.main, { fit: first || manual });
-          draw();
-          loadNext();
           if (manual) M.toast('Fahrtverlauf aktualisiert');
         } catch (e) {
           if (!ctx.alive()) return;
@@ -778,7 +803,7 @@
       function through(list) {
         let n = 0;
         list.forEach((x) => {
-          const c = M.Transit.known('c|' + x.tripId), k = M.Transit.known('k|' + x.tripId);
+          const c = M.Transit.known(M.Transit.contKey(x)), k = M.Transit.known('k|' + x.tripId);
           if (c) x.cont = c;
           if (k) x.comes = k;
           if (n >= 6 || x.cancelled || !(x.line.mode === 'tram' || x.line.mode === 'bus')) return;
@@ -799,7 +824,7 @@
         const shown = all.filter((x) => !st.off.includes(x.line.mode));
         through(shown);
         listBox.innerHTML = shown.length ? shown.map((x, i) => C.depRow(x, i)).join('') : C.empty('Keine Abfahrten', 'In nächster Zeit fährt hier nichts ab.');
-        bindAll(listBox, '.dep', (b) => { const x = shown[+b.dataset.i]; UI.open('trip', { tripId: x.tripId, src: x.src, line: x.line, focusStop: stop.name }); });
+        bindAll(listBox, '.dep', (b) => { const x = shown[+b.dataset.i]; UI.open('trip', { tripId: x.tripId, src: x.src, line: x.line, headsign: x.headsign, focusStop: stop.name }); });
         bindAll(listBox, '.alert-line[data-alert]', (b) => {
           const [i, k] = b.dataset.alert.split(':').map(Number);
           const a = shown[i].alerts[k];
@@ -922,7 +947,7 @@
           if (lines.length) h += '<div class="lbl">Linien</div>' + lines.map((x, i) => C.lrow({ cls: 'lines', lead: C.badges(x.line), title: esc(x.headsigns.slice(0, 2).join(' – ')), sub: 'Nächste Abfahrt ' + esc(C.countdown(x.next.time).toLowerCase()) + ' ab ' + esc(x.next.stop.name) }, 'L' + i)).join('');
           if (stops.length) h += (lines.length ? '<div class="lbl">Haltestellen</div>' : '') + stops.map((s, i) => C.stopRow(s, i)).join('');
           box.innerHTML = h || C.empty('Nichts gefunden', 'Prüfe die Schreibweise oder suche nach einer Liniennummer.');
-          box.querySelectorAll('[data-i^="L"]').forEach((el) => el.addEventListener('click', () => { const x = lines[+el.dataset.i.slice(1)]; UI.open('trip', { tripId: x.next.tripId, src: x.next.src, line: x.line }); }));
+          box.querySelectorAll('[data-i^="L"]').forEach((el) => el.addEventListener('click', () => { const x = lines[+el.dataset.i.slice(1)]; UI.open('trip', { tripId: x.next.tripId, src: x.next.src, line: x.line, headsign: x.next.headsign }); }));
           box.querySelectorAll('.stop-row').forEach((el) => el.addEventListener('click', (e) => {
             const s = stops[+el.dataset.i], sb = e.target.closest('[data-star]');
             if (sb) { e.stopPropagation(); const on = M.favs.toggleStop(s); sb.classList.toggle('on', on); sb.innerHTML = icon(on ? 'starFill' : 'star'); return; }
@@ -1014,76 +1039,6 @@
 
 
   /* =====================================================================
-     Abonnements
-     ===================================================================== */
-  function ticketCard(p, opts) {
-    opts = opts || {};
-    return '<div class="card-o"><div class="top"><div class="n">' + esc(p.name) + '</div><div class="p">' + (p.price != null ? M.money(p.price) + (p.unit ? '<small>' + esc(p.unit) + '</small>' : '') : '<small style="margin:0">Preis laut marego</small>') + '</div></div>' +
-      '<div class="z">' + esc(p.zone) + '</div>' +
-      (p.app || p.child ? '<div class="sub2">' + (p.app ? '<span>App/online: <b>' + M.money(p.app) + '</b></span>' : '') + (p.child ? '<span>Kind 6–14: <b>' + M.money(p.child) + '</b>' + (p.childApp ? ' (App ' + M.money(p.childApp) + ')' : '') + '</span>' : '') + '</div>' : '') +
-      '<div class="d">' + esc(p.note) + '</div>' +
-      (p.tags ? '<div class="tags">' + p.tags.map((t) => '<span>' + esc(t) + '</span>').join('') + '</div>' : '') +
-      (opts.link ? '<a class="btn-o acc" href="' + opts.link + '" target="_blank" rel="noopener">' + icon('external') + esc(opts.linkText || 'Mehr erfahren') + '</a>' : '') + '</div>';
-  }
-  V.abos = {
-    height: 0.95,
-    render(ctx) {
-      const T = M.Tariffs;
-      ctx.head({ title: 'Abonnements' });
-      const dt = T.products.find((p) => p.id === 'dt'), abo = T.products.find((p) => p.id === 'abo');
-      ctx.body.innerHTML = '<div class="lbl" style="padding-top:6px">Stand ' + T.stand + ' · ohne Gewähr</div>' +
-        ticketCard(dt, { link: 'https://www.bahn.de/angebot/regio/deutschland-ticket', linkText: 'Deutschlandticket abschließen' }) +
-        ticketCard(abo, { link: 'https://www.marego-heimat.de/', linkText: 'marego-Abo ansehen' }) +
-        '<div class="hint">' + icon('infoFill') + '<span>Mit dem Deutschlandticket fährst du in ganz Magdeburg (Straßenbahn, Bus, S-Bahn) und bundesweit im Nahverkehr ohne Aufpreis.</span></div>';
-    }
-  };
-
-  /* =====================================================================
-     Ticket kaufen
-     ===================================================================== */
-  V.tickets = {
-    height: 0.95,
-    render(ctx) {
-      const T = M.Tariffs, st = ctx.state;
-      ctx.head({ title: 'Ticket kaufen' });
-      const shop = 'https://www.mvbnet.de/fahrkarten/';
-      ctx.body.innerHTML = '<div class="lbl" style="padding-top:6px">Magdeburg · ' + esc(T.verbund) + ' · Stand ' + T.stand + '</div>' +
-        T.products.filter((p) => ['einzel', 'kurz', '24h'].includes(p.id)).map((p) => ticketCard(p, { link: shop, linkText: 'Bei der MVB kaufen' })).join('') +
-        '<div class="lbl">Preis für deine Strecke</div>' +
-        '<div class="od"><button class="od-row" data-pick="from"><span class="radio on"></span><span class="v' + (st.from ? '' : ' ph') + '">' + esc(st.from ? placeName(st.from) : 'Start eingeben') + '</span></button><div class="od-div"></div>' +
-        '<button class="od-row" data-pick="to"><span class="radio off"></span><span class="v' + (st.to ? '' : ' ph') + '">' + esc(st.to ? placeName(st.to) : 'Ziel eingeben') + '</span></button></div>' +
-        '<button class="btn-a full" data-calc style="margin-top:14px">' + icon('euro') + 'Preis ermitteln</button><div data-res></div>' +
-        '<div class="lbl">Fernverkehr & Deutschland</div>' +
-        ticketCard({ name: 'DB-Tickets', zone: 'ICE · IC · RE · bundesweit', price: null, note: 'Spar- und Flexpreise für Fahrten mit der Deutschen Bahn. Muvit zeigt dir den aktuellen Bestpreis direkt bei deiner Verbindung.' }, { link: 'https://www.bahn.de/', linkText: 'Auf bahn.de buchen' }).replace('Preis laut marego', 'Preis je Verbindung') +
-        '<div class="hint">' + icon('infoFill') + '<span>Alle Preise ohne Gewähr. Den aktuellen Tarif findest du in der <a href="https://www.marego-heimat.de/" target="_blank" rel="noopener">marego-Tarifauskunft</a>.</span></div>';
-      bindAll(ctx.body, '[data-pick]', (b) => { const k = b.dataset.pick; UI.open('places', { title: k === 'from' ? 'Start' : 'Ziel', onPick: (pl) => { st[k] = pl; } }); });
-      bindAll(ctx.body, '[data-calc]', async () => {
-        const res = M.$('[data-res]', ctx.body);
-        if (!st.to) { M.toast('Bitte ein Ziel wählen', { type: 'err' }); return; }
-        const q = { from: st.from || M.MY_LOCATION, to: st.to, via: [], time: null, arriveBy: false };
-        res.innerHTML = C.skel(2);
-        try {
-          const r = await runJourneys(q);
-          if (!ctx.alive()) return;
-          const j = r.list[0];
-          if (!j) { res.innerHTML = C.empty('Keine Verbindung gefunden', ''); return; }
-          const est = M.Tariffs.estimate(j);
-          res.innerHTML = '<div style="margin-top:14px" class="hr"></div><div class="kv"><div class="k">' + esc(est.title) + '<small>' + esc(est.note) + '</small></div><div class="v">' + (est.price != null ? M.money(est.price) : '–') + '</div></div>' + C.jrow(j, 0) + '<div data-db></div>';
-          bindAll(res, '.jrow', () => UI.open('journey', { j, query: q }));
-          if (est.kind !== 'md' && est.kind !== 'walk') {
-            const box = M.$('[data-db]', res);
-            const a = await M.concretePlace(q.from), b = await M.concretePlace(q.to);
-            M.Transit.dbPrice(a, b, null).then((p) => {
-              if (!ctx.alive()) return;
-              box.innerHTML = p ? '<div class="kv"><div class="k">Günstigster DB-Preis heute<small>Abfahrt ' + M.fmtTime(p.cheapest.dep) + ' · ' + M.fmtDur(p.cheapest.duration) + '</small></div><div class="v">' + M.money(p.cheapest.price.amount) + '</div></div>' : '';
-            }).catch(() => {});
-          }
-        } catch (e) { res.innerHTML = ''; res.appendChild(C.error(e)); }
-      });
-    }
-  };
-
-  /* =====================================================================
      Netzplan – Live-Karte & Linien
      ===================================================================== */
   V.netz = {
@@ -1139,7 +1094,7 @@
         box.innerHTML = h;
         bindAll(box, '.lrow', (el) => {
           const x = L[+el.dataset.i];
-          if (x.next) UI.open('trip', { tripId: x.next.tripId, src: x.next.src, line: x.line });
+          if (x.next) UI.open('trip', { tripId: x.next.tripId, src: x.next.src, line: x.line, headsign: x.next.headsign });
           else UI.open('trip', { tripId: x.live.tripId, src: 'motis', line: x.line });
         });
       }

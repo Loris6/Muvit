@@ -47,8 +47,8 @@
     const rt = o.rt === undefined ? '' : C.rtBadge(o.rt);
     return '<span class="bds' + (rt ? ' has-rt' : '') + '">' + C.modeBadge(line.mode, o, line) + C.lineBadge(line, o) + rt + '</span>';
   };
-  /** Echtzeit-Zeichen: kleine abgerundete Kapsel (RGB 50,50,50) mit weißem WLAN-Zeichen (Punkt + ein Bogen) */
-  C.rtBadge = (on) => (on ? '<span class="rtb" title="Echtzeitdaten">' + icon('wifi2') + '</span>' : '');
+  /** Echtzeit-Zeichen: dunkler runder Punkt oben rechts an der Linie mit weißem Funk-Zeichen (Punkt + ein Bogen) */
+  C.rtBadge = (on) => (on ? '<span class="rtb" title="Echtzeitdaten">' + icon('rt') + '</span>' : '');
   /** Mehrere Linien gruppiert: Verkehrsmittel-Zeichen einmal, dann alle Nummern – [Tram] 1 2 3 · [Bus] 48 73 */
   C.lineGroups = function (lines, o) {
     o = o || {};
@@ -170,10 +170,11 @@
     // und unsinnige weglassen (z. B. „… weiter nach City Carré“ an City Carré, Wechsel an normalen Endstellen)
     (x.notes || []).filter((n) => !(x.cont && /weiter\s+als/i.test(n.text)) && !(x.comes && /kommt\s+als/i.test(n.text)) && C.throughNoteOk(n.text, x)).slice(0, 2)
       .forEach((n) => { h += note(C.richText(n.text, x.line, at)); });
-    // Durchläufer: „Kommt als [Tram][2] aus …“ / „Fährt weiter als [Tram][13] nach …“
+    // Durchläufer: „Kommt als [Tram][2] aus …“ / „Weiter als [Tram][13] nach …“
     if (x.comes) h += note('Kommt als <span class="ref">' + C.badges(x.comes.line, { sm: true }) + '</span>' + (x.comes.from ? ' aus ' + esc(x.comes.from) : ''));
-    if (x.cont) h += note(x.cont.line ? 'Fährt weiter als <span class="ref">' + C.badges(x.cont.line, { sm: true }) + '</span>' + (x.cont.headsign ? ' nach ' + esc(x.cont.headsign) : '')
-      : 'Fährt' + (x.cont.at ? ' ab ' + esc(x.cont.at) : '') + ' weiter nach ' + esc(x.cont.headsign));
+    // „Weiter als [Tram][13] nach Sudenburg“ – Ziel ist der letzte Halt der Weiterfahrt, nie der Wechselhalt
+    const cdest = x.cont && x.cont.headsign && nn(x.cont.headsign) !== nn(x.cont.at) ? x.cont.headsign : '';
+    if (x.cont) h += note((x.cont.line ? 'Weiter als <span class="ref">' + C.badges(x.cont.line, { sm: true }) + '</span>' : 'Ab ' + esc(x.cont.at || x.headsign) + ' weiter') + (cdest ? ' nach ' + esc(M.localName(cdest)) : ''));
     return h;
   };
 
@@ -248,15 +249,20 @@
   M.UI = UI;
   M.Views = UI.views;
 
-  UI.maxH = () => Math.max(200, window.innerHeight - (UI.kb || 0));
+  /** Höhe der unteren Leiste (ohne sie bei offener Tastatur) */
+  UI.tabH = () => (UI.kb || !UI.tabbar ? 0 : (UI._tabH || (UI._tabH = UI.tabbar.offsetHeight)));
+  UI.maxH = () => Math.max(200, window.innerHeight - (UI.kb || 0) - UI.tabH());
   UI.minH = () => 112;
 
   UI.init = function () {
     UI.sheet = $('#sheet'); UI.grab = $('#sheetGrab'); UI.head = $('#sheetHead'); UI.extra = $('#sheetExtra'); UI.body = $('#sheetBody');
     UI.scroller = UI.body;
+    UI.tabbar = $('#tabbar');
+    renderTabbar();
     initGestures();
     initKeyboard();
     window.addEventListener('resize', M.debounce(() => {
+      UI._tabH = 0;
       if (UI.h > UI.maxH() || UI.sheet.classList.contains('full')) UI.setH(UI.maxH(), false);
       UI.layout(); M.Map.resize();
     }, 120));
@@ -286,14 +292,15 @@
 
   UI.layout = function () {
     const btn = $('#locateBtn');
+    document.documentElement.style.setProperty('--tabh', UI.tabH() + 'px');
     if (btn) {
-      btn.style.bottom = (UI.h + 12 + (UI.kb || 0)) + 'px';
+      btn.style.bottom = (UI.h + 12 + (UI.kb || 0) + UI.tabH()) + 'px';
       btn.classList.toggle('hide', UI.h > UI.maxH() - 150);
     }
   };
   UI.mapPadding = function () {
     const max = UI.maxH();
-    return { top: 60, bottom: Math.round(Math.min(UI.h || max * 0.5, max * 0.5)) + 24, left: 36, right: 36 };
+    return { top: 60, bottom: Math.round(Math.min(UI.h || max * 0.5, max * 0.5)) + 24 + UI.tabH(), left: 36, right: 36 };
   };
 
   /* ---------- Ansichten ---------- */
@@ -319,6 +326,42 @@
     M.Map.clearRoute();
     show(UI.stack[0], true);
   };
+  /* ---------- Untere Leiste: Auskunft, Tickets, D-Ticket, Mehr – jede mit eigenem Verlauf ---------- */
+  const TABS = [
+    { id: 'auskunft', root: 'home', label: 'Auskunft', icon: 'searchLoc', on: 'searchLocS' },
+    { id: 'tickets', root: 'tickets', label: 'Tickets', icon: 'ticketR', on: 'ticketS' },
+    { id: 'dticket', root: 'dticket', label: 'D-Ticket', icon: 'dt', on: 'dt' },
+    { id: 'mehr', root: 'mehr', label: 'Mehr', icon: 'menu', on: 'menu' }
+  ];
+  UI.tab = 'auskunft';
+  UI.stacks = {};
+  /** D-Ticket-Zeichen: abgerundete Karte mit „D“ */
+  const DT_ICON = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="1.5" y="4" width="21" height="16" rx="3.5" fill="none" stroke="currentColor" stroke-width="2"/>' +
+    '<text x="12" y="16.4" text-anchor="middle" font-family="Rubik, system-ui, sans-serif" font-weight="700" font-size="11" fill="currentColor">D</text></svg>';
+  M.DT_ICON = DT_ICON;
+  function renderTabbar() {
+    if (!UI.tabbar) return;
+    UI.tabbar.innerHTML = TABS.map((t) => {
+      const on = t.id === UI.tab;
+      return '<button class="tb' + (on ? ' on' : '') + '" data-tab="' + t.id + '"' + (on ? ' aria-current="page"' : '') + '>' + (t.icon === 'dt' ? DT_ICON : icon(on ? t.on : t.icon)) + '<span>' + t.label + '</span></button>';
+    }).join('');
+    UI.tabbar.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => UI.switchTab(b.dataset.tab)));
+  }
+  UI.switchTab = function (tab) {
+    const t = TABS.find((x) => x.id === tab);
+    if (!t) return;
+    if (tab === UI.tab) { if (!UI.isRoot()) UI.home(); return; }
+    M.Map.closePopup();
+    if (UI.cur) { UI.cur.entry.h = UI.h; teardown(UI.cur); }
+    UI.stacks[UI.tab] = UI.stack;
+    UI.tab = tab;
+    UI.stack = UI.stacks[tab] || [{ id: t.root, params: {}, opts: {}, state: {} }];
+    M.Map.clearRoute();
+    renderTabbar();
+    show(UI.stack[UI.stack.length - 1], true);
+  };
+  /** Für Karte, Suche und Mitteilungen: immer in der Auskunft weiterarbeiten */
+  UI.toAuskunft = function () { if (UI.tab !== 'auskunft') UI.switchTab('auskunft'); };
   UI.refresh = function () { if (UI.cur) { const e = UI.cur.entry; e.h = UI.h; teardown(UI.cur); show(e, true); } };
   UI.isRoot = () => UI.stack.length <= 1;
 
@@ -472,6 +515,7 @@
       if (val === (UI.kb || 0)) return;
       UI.kb = val;
       document.documentElement.style.setProperty('--kb', val + 'px');
+      if (UI.tabbar) UI.tabbar.classList.toggle('kb', !!val);
       UI.setH(val ? UI.maxH() : (UI.cur && UI.cur.entry.h) || UI.h, false);
     };
     vv.addEventListener('resize', update);

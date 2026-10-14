@@ -29,6 +29,7 @@
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --pad: 20px;
+  --tabbar: 58px;
   --ease: cubic-bezier(.2, .8, .2, 1);
   color-scheme: dark;
 }
@@ -58,7 +59,7 @@ svg.i { width: 20px; height: 20px; flex: none; display: block; }
 
 /* ---------- Sheet ---------- */
 .sheet {
-  position: absolute; left: 0; bottom: var(--kb, 0px); z-index: 20;
+  position: absolute; left: 0; bottom: calc(var(--kb, 0px) + var(--tabh, 0px)); z-index: 20;
   width: 100vw; height: 60vh; background: var(--bg);
   border-radius: 24px 24px 0 0; display: flex; flex-direction: column; overflow: hidden;
   box-shadow: 0 -1px 0 rgba(255, 255, 255, .09), 0 -8px 28px rgba(0, 0, 0, .45);
@@ -74,17 +75,19 @@ svg.i { width: 20px; height: 20px; flex: none; display: block; }
 .sheet.full .sheet-head { padding-top: 10px; }
 .sheet-head.border { border-bottom: 1px solid var(--sep); }
 .sheet-head.none { display: none; }
-.sheet-head .back { width: 26px; height: 30px; margin-left: -4px; display: grid; place-items: center; color: #fff; flex: none; }
-.sheet-head .back svg.i { width: 22px; height: 22px; }
+.sheet-head .back { width: 30px; height: 30px; margin-left: -6px; display: grid; place-items: center; color: #fff; flex: none; }
+/* Zurück-Pfeil, X, Stern & Co.: sichtbar alle gleich groß (wie das X) */
+.sheet-head .back svg.i { width: 28px; height: 28px; }
 .sheet-head h1 { margin: 0; flex: 1; min-width: 0; font-size: 20px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sheet-head h1.sm { font-size: 17px; }
 .sheet-head .acts { display: flex; gap: 14px; align-items: center; }
-.sheet-head .act { color: var(--gray); display: grid; place-items: center; width: 28px; height: 28px; }
+.sheet-head .act { color: var(--gray); display: grid; place-items: center; width: 30px; height: 30px; }
 .sheet-head .act.on { color: var(--accent); }
 .sheet-head .act.home { color: #fff; }
-.sheet-head .act svg.i { width: 24px; height: 24px; }
+.sheet-head .act svg.i { width: 17px; height: 17px; }
+.sheet-head .act.home svg.i { width: 28px; height: 28px; }
 .head-extra { flex: none; padding: 0 var(--pad) 14px; border-bottom: 1px solid var(--sep); touch-action: none; }
-.sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-bottom: calc(var(--safe-b) + 28px); }
+.sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-bottom: 28px; }
 .sheet-body.flex { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
 
 /* ---------- Badges (Tram/Bus wie an der Haltestelle) ---------- */
@@ -115,9 +118,9 @@ svg.i { width: 20px; height: 20px; flex: none; display: block; }
 .vsep { width: 1.6px; height: 20px; background: #fff; margin: 0 3px; flex: none; }
 /* Echtzeit-Zeichen oben rechts über den Linienzeichen */
 .bds.has-rt { position: relative; }
-.dep .bds.has-rt { margin-right: 9px; }
-.rtb { position: absolute; top: -6px; right: -10px; height: 12px; min-width: 19px; padding: 0 4px; border-radius: 6px; background: rgb(50, 50, 50); display: grid; place-items: center; z-index: 2; box-sizing: border-box; }
-.rtb svg.i { width: 10px; height: 10px; color: #fff; }
+.dep .bds.has-rt { margin-right: 6px; }
+.rtb { position: absolute; top: -7px; right: -8px; width: 16px; height: 16px; border-radius: 50%; background: rgb(50, 50, 50); box-shadow: 0 0 0 1.5px var(--bg); display: grid; place-items: center; z-index: 2; }
+.rtb svg.i { width: 16px; height: 16px; color: #fff; }
 /* Linien gruppiert: [Tram] 1 2 3 */
 .bds.lg { gap: 4px; }
 a.btn-o { text-decoration: none; }
@@ -384,6 +387,55 @@ a.btn-o { text-decoration: none; }
 .hint { display: flex; gap: 10px; color: var(--gray); font-size: 14px; line-height: 1.4; padding: 6px var(--pad) 0; }
 .hint svg.i { flex: none; width: 18px; height: 18px; color: var(--info); }
 
+/* ---------- Mehr ---------- */
+.welcome { margin: 0; padding: 14px var(--pad) 0; font-size: 26px; font-weight: 700; line-height: 1.2; }
+.profile-card { display: grid; grid-template-columns: 48px 1fr 16px; column-gap: 14px; align-items: center; width: calc(100% - 2 * var(--pad)); margin: 0 var(--pad); padding: 14px; border: 1px solid var(--sep); border-radius: 12px; text-align: left; }
+.profile-card .pt { display: block; font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.profile-card .ps { display: block; font-size: 14px; color: var(--gray); margin-top: 3px; line-height: 1.35; }
+.profile-card .chev { color: var(--accent-dim); }
+.profile-card .chev svg.i { width: 22px; height: 22px; }
+.avatar { width: 48px; height: 48px; border-radius: 50%; background: var(--accent); color: #131418; display: grid; place-items: center; font-weight: 700; font-size: 17px; }
+.avatar svg.i { width: 22px; height: 22px; }
+.avatar.big { width: 72px; height: 72px; }
+.avatar.big svg.i { width: 32px; height: 32px; }
+.profile-hero { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding: 6px var(--pad) 22px; }
+.profile-hero b { font-size: 20px; font-weight: 600; margin-top: 6px; }
+.profile-hero span:last-child { color: var(--gray); font-size: 14px; line-height: 1.4; max-width: 320px; }
+.mehr-foot { color: #45464B; font-size: 13px; text-align: center; padding: 24px var(--pad) 0; }
+.chips.wrap { flex-wrap: wrap; overflow: visible; }
+
+/* ---------- D-Ticket ---------- */
+.dt-card { margin: 4px var(--pad) 0; border: 1.5px solid var(--accent); border-radius: 16px; padding: 16px; background: linear-gradient(180deg, rgba(193, 205, 66, .08), rgba(193, 205, 66, 0) 60%); }
+.dt-card.off { border-color: var(--sep); background: none; }
+.dt-top { display: grid; grid-template-columns: 44px 1fr auto; column-gap: 12px; align-items: center; }
+.dt-logo { width: 44px; height: 44px; border-radius: 10px; background: var(--accent); color: #131418; display: grid; place-items: center; }
+.dt-logo svg.i { width: 28px; height: 28px; }
+.dt-logo.big { width: 64px; height: 64px; border-radius: 14px; margin: 0 auto 6px; }
+.dt-logo.big svg.i { width: 40px; height: 40px; }
+.dt-t { font-size: 18px; font-weight: 700; }
+.dt-s { font-size: 14px; color: var(--gray); margin-top: 2px; }
+.dt-state { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: 13px; background: var(--accent); color: #131418; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.dt-state svg.i { width: 13px; height: 13px; }
+.dt-card.off .dt-state { background: var(--dim); color: #fff; }
+.dt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+.dt-grid small { display: block; color: var(--gray); font-size: 13px; }
+.dt-grid b { display: block; font-size: 16px; font-weight: 600; margin-top: 3px; overflow-wrap: anywhere; }
+.dt-grid span { display: block; font-size: 13px; color: #C9C9CC; margin-top: 2px; }
+.dt-code { display: block; width: 100%; margin-top: 16px; padding: 12px; border-radius: 12px; background: #fff; }
+.dt-code img { display: block; width: 100%; max-height: 240px; object-fit: contain; }
+.dt-code.zoom img { max-height: none; }
+.dt-cap { color: var(--gray); font-size: 13px; text-align: center; margin-top: 8px; }
+.dt-nocode { display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: center; margin-top: 16px; padding: 12px; border: 1px dashed var(--sep); border-radius: 12px; color: var(--gray); font-size: 14px; line-height: 1.4; }
+.dt-nocode svg.i { width: 26px; height: 26px; color: #fff; }
+.dt-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 18px var(--pad) 8px; }
+.dt-empty > b { font-size: 18px; font-weight: 600; }
+.dt-empty > span { color: var(--gray); font-size: 15px; line-height: 1.4; max-width: 330px; }
+.dt-pick { display: grid; grid-template-columns: 84px 1fr; gap: 14px; align-items: center; margin: 0 var(--pad); color: var(--gray); font-size: 14px; line-height: 1.4; }
+.dt-pick [data-prev] { width: 84px; height: 84px; border-radius: 10px; background: #fff; display: grid; place-items: center; overflow: hidden; color: #131418; }
+.dt-pick [data-prev] img { width: 100%; height: 100%; object-fit: contain; }
+.dt-pick [data-prev] svg.i { width: 34px; height: 34px; }
+.dt-pick label.btn-o { cursor: pointer; }
+
 /* ---------- Formulare ---------- */
 .field { display: block; margin: 0 var(--pad) 14px; }
 .field > span { display: block; color: var(--gray); font-size: 14px; margin-bottom: 8px; }
@@ -398,7 +450,7 @@ input.inp::-webkit-date-and-time-value { text-align: left; }
 .inp-wrap .eye { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); color: var(--gray); width: 34px; height: 34px; display: grid; place-items: center; }
 .dt { display: grid; grid-template-columns: 1.3fr 1fr; gap: 10px; margin: 0 var(--pad) 14px; }
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 10px; margin: 0 var(--pad) 16px; }
-.seg button { height: 44px; border: 1px solid var(--sep); border-radius: 10px; font-weight: 600; font-size: 15px; }
+.seg button { height: 44px; border: 1px solid var(--sep); border-radius: 10px; font-weight: 600; font-size: 15px; text-align: center; }
 .seg button.on { border-color: var(--accent); color: var(--accent); }
 .btn-a { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 48px; padding: 0 20px; border-radius: 10px; background: var(--accent); color: #131418; font-weight: 600; font-size: 16px; }
 .btn-a.full { width: calc(100% - 2 * var(--pad)); margin: 6px var(--pad) 0; }
@@ -443,7 +495,7 @@ input.inp::-webkit-date-and-time-value { text-align: left; }
 .chat-mode .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
 .chat-mode.local .dot { background: var(--orange); }
 .chat-mode button { color: var(--accent); font-weight: 600; }
-.chat-in { flex: none; display: flex; align-items: flex-end; gap: 10px; padding: 10px var(--pad) calc(var(--safe-b) + 12px); border-top: 1px solid var(--sep); background: var(--bg); }
+.chat-in { flex: none; display: flex; align-items: flex-end; gap: 10px; padding: 10px var(--pad) 12px; border-top: 1px solid var(--sep); background: var(--bg); }
 .chat-in textarea { flex: 1; resize: none; border: 1px solid var(--sep); border-radius: 12px; background: transparent; color: #fff; outline: none; padding: 12px 14px; min-height: 48px; max-height: 120px; font-size: 16px; line-height: 1.35; }
 .chat-in textarea::placeholder { color: var(--gray); }
 .chat-in textarea:focus { border-color: var(--accent); }
@@ -470,7 +522,21 @@ input.inp::-webkit-date-and-time-value { text-align: left; }
 .pop-actions button { height: 32px; padding: 0 11px; border: 1px solid var(--sep); border-radius: 8px; font-size: 13px; font-weight: 600; }
 .pop-actions button.p { border-color: var(--accent); color: var(--accent); }
 .maplibregl-ctrl-attrib { font-family: var(--font); font-size: 10.5px; }
+/* Info-Knopf oben rechts in hellem MVB-Grün */
+.maplibregl-ctrl-attrib.maplibregl-compact { background-color: var(--accent); color: #131418; }
+.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button { background-color: var(--accent); }
+.maplibregl-ctrl-attrib.maplibregl-compact-show { background-color: var(--accent); }
+.maplibregl-ctrl-attrib.maplibregl-compact a { color: #131418; }
 .maplibregl-ctrl-top-right { top: var(--safe-t); }
+
+/* ---------- Untere Leiste (Vollbild-Breite, über dem Home-Indikator) ---------- */
+.tabbar { position: absolute; left: 0; bottom: 0; z-index: 25; width: 100vw; height: calc(var(--tabbar) + var(--safe-b)); padding-bottom: var(--safe-b); background: var(--bg); border-top: 1px solid var(--sep-soft); display: grid; grid-template-columns: repeat(4, 1fr); }
+.tabbar.kb { display: none; }
+.tabbar .tb { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--gray); font-size: 11.5px; font-weight: 500; min-width: 0; }
+.tabbar .tb svg.i { width: 22px; height: 22px; }
+.tabbar .tb.on { color: var(--accent); }
+.tabbar .tb.on span { font-weight: 600; }
+.tabbar .tb:active { background: rgba(255, 255, 255, .04); }
 
 /* ---------- Überwachte Verbindung ---------- */
 .watch-bar { position: absolute; top: calc(var(--safe-t) + 10px); left: 12px; right: 56px; z-index: 15; display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 12px; border-radius: 14px; background: var(--bg); border: 1px solid var(--sep); box-shadow: 0 8px 24px rgba(0,0,0,.4); }

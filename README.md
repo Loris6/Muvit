@@ -8,15 +8,18 @@ Die Karte liegt immer im Hintergrund. Alle Inhalte stecken in einem dunklen Shee
 
 | Bereich | Was Muvit kann |
 |---|---|
+| **Untere Leiste** | Über die ganze Breite: **Auskunft**, **Tickets**, **D-Ticket** und **Mehr** – jeder Bereich merkt sich seinen eigenen Verlauf |
 | **Startframe** | „Wo geht's hin?“ mit Start/Ziel und Tauschen, sechs Schnellzugriffe (Abfahrten, Verkehrsmelder, Abonnements, Netzplan, Ticket kaufen, Assistance) und Verlauf |
 | **Karte** | MapLibre GL mit OpenFreeMap (Hell/Dunkel); Haltestellen als „H“-Schild (Zeichen 224). Ein Tipp auf eine Haltestelle öffnet direkt ihre Abfahrten. Standort mit Genauigkeitskreis; langes Drücken auf die Karte öffnet „Von hier / Nach hier / Haltestellen“ |
 | **Live-Karte** | Alle Straßenbahnen, Busse und Züge der ganzen Stadt in Echtzeit, flüssig entlang der Strecke animiert. Trams und Busse zeigen auf der Karte nur ihre Liniennummer, Züge zusätzlich das S-Bahn- bzw. DB-Logo. Weit herausgezoomt zeigt die Karte die Züge in ganz Deutschland |
 | **Verbindungen** | Echtzeit-Routing mit Verspätungen und Gleisen. Die Karten zeigen eine proportionale Linien-Leiste und Badges wie „Schnellste“ oder „Wenigste Umstiege“. „Früher/Später“, Filter für das Deutschlandticket, bis zu 2 Zwischenhalte mit Mindestaufenthalt |
 | **Verbindung** | Zeitstrahl in Linienfarben mit Gleis, Verspätung, aufklappbaren Zwischenhalten, Fußwegen, Hinweisen/Störungen, Tarif-Einschätzung, DB-Live-Preis, Teilen und Merken |
-| **Abfahrten / Haltestelle** | Suche nach Haltestelle oder Linie, Tabs Verlauf/Favoriten/In der Nähe. Die Haltestellenansicht zeigt eine Echtzeit-Abfahrtstafel mit Countdown, Status (pünktlich, früher, verspätet, fällt aus), Bahnsteig (Bstg.) bei Tram und Bus bzw. Gleis bei Zügen (Gleiswechsel rot hinterlegt) und Filter nach Verkehrsmittel. Unter jeder Linie stehen bei Bedarf Hinweise wie „Baustellenbedingte Umleitung“, „Fährt weiter als [Tram][13] nach Sudenburg“ oder „Kommt als [Tram][2] aus …“ |
+| **Abfahrten / Haltestelle** | Suche nach Haltestelle oder Linie, Tabs Verlauf/Favoriten/In der Nähe. Die Haltestellenansicht zeigt eine Echtzeit-Abfahrtstafel mit Countdown, Status (pünktlich, früher, verspätet, fällt aus), Bahnsteig (Bstg.) bei Tram und Bus bzw. Gleis bei Zügen (Gleiswechsel rot hinterlegt) und Filter nach Verkehrsmittel. Unter jeder Linie stehen bei Bedarf Hinweise wie „Baustellenbedingte Umleitung“, „Weiter als [Tram][13] nach Sudenburg“ oder „Kommt als [Tram][2] aus …“ |
 | **In der Nähe** | Haltestellen im Umkreis mit selbst berechneter Entfernung (Haversine ab Geräteposition), Gehzeit und Himmelsrichtung, dazu eine Vorschau der nächsten Abfahrten |
-| **Fahrtverlauf & Netzplan** | Ein Tipp auf eine Linie öffnet den Fahrtverlauf mit allen Halten, Echtzeit und Live-Position auf der Karte. Die Linie ist durchgehend in Linienfarbe, weiß umrandet, mit Haltestellenpunkten (weiß, bei hellen Linien wie Tram 3 schwarz). Fährt das Fahrzeug als andere Linie weiter, folgt nach einer Lücke deren Verlauf in ihrer Farbe. Der Netzplan zeigt die ganze Stadt und listet alle Linien einschließlich der Nachtlinien |
-| **Tickets & Preise** | marego/MVB-Tarife und Deutschlandticket (Stand 08/2026), Preisermittlung für eine Strecke, DB-Preise live |
+| **Fahrtverlauf & Netzplan** | Ein Tipp auf eine Linie öffnet den Fahrtverlauf mit allen Halten, Echtzeit und Live-Position auf der Karte. Die Linie ist durchgehend in Linienfarbe, weiß umrandet, mit Haltestellenpunkten (weiß, bei hellen Linien wie Tram 3 schwarz). Fährt das Fahrzeug als andere Linie weiter, endet der Verlauf am Wechselhalt (z. B. Linie 1 bis City Carré) und nach einer Lücke folgt „Weiter als [Tram][5] nach Klinikum Olvenstedt“ mit dem Verlauf in der Farbe der neuen Linie. Der Netzplan zeigt die ganze Stadt und listet alle Linien einschließlich der Nachtlinien |
+| **Tickets** | Alle Tickets für Magdeburg: Einzelfahrt, Kurzstrecke, 24-Stunden-, Wochen- und Monatskarte, Deutschlandticket (auch Job und Semester), marego-Abo und DB-Tickets (Stand 08/2026), dazu Preisermittlung für eine Strecke und DB-Preise live |
+| **D-Ticket** | Das eigene Deutschlandticket mit Monat, Inhaber/in und – falls hinterlegt – dem Barcode-Bild des Anbieters. Alles bleibt auf dem Gerät; Muvit stellt keine Fahrkarten aus |
+| **Mehr** | „Willkommen in der Muvit App“, Mein Profil (Anmelden, nur auf diesem Gerät), Reise-Optionen (Verkehrsmittel, Umstiege, barrierefrei), Einstellungen, Favoriten, ÖPNV Netz- & Tarifpläne und Abos verwalten |
 | **Assistance (Muvit KI)** | Claude (Anthropic) mit Tool-Use auf echte Daten: Routen von A nach B (auch über C mit XX Min Aufenthalt), Abfahrten, Linien, Tarife, DB-Preise und Haltestellen in der Nähe. Mit Streaming und Spracheingabe. Ohne API-Schlüssel beantwortet ein Basis-Modus typische Fragen |
 
 Muvit ist eine App für Magdeburg: Haltestellen und Orte erscheinen ohne den Zusatz „Magdeburg“, also „Sudenburg“ statt „Magdeburg, Sudenburg“. Orte außerhalb behalten ihren Ortsnamen, Züge in ganz Deutschland werden weiterhin angezeigt.
@@ -38,7 +41,13 @@ Nach der einmaligen Einrichtung reicht es, in `js/core.js` die Adresse und den �
 
 Muvit zeigt Linienwechsel nur an den Wechsel-Haltestellen der MVB: **City Carré** und **Hauptbahnhof** (`CONFIG.changeStops` in `js/core.js`). An normalen Endstellen wie Klinikum Olvenstedt fährt einfach die nächste Linie ab. Dort erscheint kein „weiter als“.
 
-Die Fahrplandaten enthalten nicht direkt, ob ein Fahrzeug als andere Linie weiterfährt. Muvit erkennt das so: Endet eine Fahrt, sucht Muvit an der Endhaltestelle eine andere Linie desselben Verkehrsmittels, die dort beginnt und kurz danach (bis 12 Minuten) am selben Bahnsteig abfährt. Für „kommt als …“ gilt das umgekehrt. Hinweise aus den Störungsmeldungen werden zusätzlich ausgewertet.
+Die Fahrplandaten enthalten nicht direkt, ob ein Fahrzeug als andere Linie weiterfährt. Muvit erkennt das so:
+
+- Maßgeblich ist das **Ziel an der Haltestelle** (z. B. Linie 1 „City Carré“), nicht die letzte Haltestelle der Fahrt. Geht die Fahrt in den Daten weiter (bis Klinikum Olvenstedt), endet der Verlauf trotzdem am Wechselhalt.
+- Am Wechselhalt sucht Muvit die Linie, mit der dasselbe Fahrzeug weiterfährt: gleiches Verkehrsmittel, gleicher Bahnsteig, bis 12 Minuten später und – wenn die Fahrt weitergeht – dasselbe Ziel. Bekannte Wechsel (`CONFIG.lineChanges`, z. B. 1 → 5 und 2 → 13 an City Carré) haben Vorrang und benennen die Linie auch dann, wenn die Daten sie nicht nennen.
+- Das „nach …“ ist immer die Endhaltestelle der Weiterfahrt, nie der Wechselhalt selbst.
+
+Für „kommt als …“ gilt das umgekehrt. Hinweise aus den Störungsmeldungen werden zusätzlich ausgewertet.
 
 ## Datenquellen (echte APIs)
 
@@ -102,7 +111,8 @@ js/api.js               Transitous- & DB-Client, Normalisierung, Fallback
 js/tariffs.js           Tarifdaten & Tarif-Einschätzung
 js/map.js               MapLibre: H-Schilder, Live-Fahrzeuge, Routen, Linienverläufe
 js/ui.js                Ziehbares Sheet, Navigation, Komponenten (Badges, Abfahrten …)
-js/views.js             Alle Ansichten
+js/views.js             Ansichten der Auskunft (Start, Verbindungen, Abfahrten, Fahrtverlauf …)
+js/pages.js             Tickets, D-Ticket und Mehr (Profil, Reise-Optionen, Favoriten, Pläne, Abos)
 js/assistant.js         Muvit KI (Claude-Tool-Use + Basis-Modus)
 js/watch.js             Verbindung überwachen, Mitteilungen bei verpasstem Anschluss
 sw.js                   Service Worker für Mitteilungen (auch Web Push)
