@@ -8,13 +8,12 @@
     // Magdeburg (Alter Markt)
     center: { lat: 52.1316, lon: 11.6392 },
     zoom: 13.4,
-    // Haltestellen, an denen MVB-Fahrzeuge die Linie wechseln (Durchläufer). An normalen Endstellen
-    // (z. B. Klinikum Olvenstedt) zeigt Muvit keinen Linienwechsel – dort fährt einfach die nächste Linie ab.
-    changeStops: ['City Carré', 'Hauptbahnhof'],
-    /** bekannte Linienwechsel der MVB – nur, um die neue Linie zu benennen, wenn die Daten sie nicht nennen */
+    // Linienwechsel der MVB (Straßenbahn): Die Bahn kommt als eine Linie am City Carré an und fährt als die
+    // andere weiter – in beide Richtungen. Andere Linienwechsel gibt es nicht; Muvit zeigt nur diese.
+    changeStops: ['City Carré'],
     lineChanges: [
-      { line: '1', at: 'City Carré', to: '5' },
-      { line: '2', at: 'City Carré', to: '13' }
+      { a: '1', b: '5', at: 'City Carré' },
+      { a: '2', b: '13', at: 'City Carré' }
     ],
     // Mitteilungen bei geschlossener App (Web Push) – Adresse des eigenen Push-Dienstes, siehe push/README.md
     push: { server: '', vapidPublic: '' },
@@ -49,21 +48,18 @@
     return n.replace(/^Hbf\b/, 'Hauptbahnhof');
   };
   M.isMagdeburgName = (v) => /^magdeburg$/i.test(String(v || '').trim());
-  const normName = (n) => M.localName(n || '').toLowerCase().replace(/[^a-z0-9äöüß]/g, '');
-  /** Linienwechsel-Haltestelle (City Carré, Hauptbahnhof)? */
-  M.isChangeStop = (name) => { const n = normName(name); return !!n && M.CONFIG.changeStops.some((c) => { const k = normName(c); return n === k || n.startsWith(k); }); };
-  /** Linie nach einem bekannten Linienwechsel (z. B. 1 → 5 an City Carré), sonst null */
-  M.ruleLine = (line, at) => {
-    if (!line || !M.mkLine) return null;
-    const r = (M.CONFIG.lineChanges || []).find((x) => x.line === line.name && normName(at).startsWith(normName(x.at)));
-    return r ? M.mkLine(r.to, line.mode) : null;
+  // Akzente weg („Carré“ = „Carre“), nur Buchstaben und Ziffern
+  const normName = (n) => M.localName(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9äöüß]/g, '');
+  /** Linienwechsel-Haltestelle (City Carré, auch „City Carré/Hbf“ u. Ä.)? */
+  M.isChangeStop = (name) => { const n = normName(name); return !!n && M.CONFIG.changeStops.some((c) => n.includes(normName(c))); };
+  /** Partnerlinie am Wechselhalt: 1 ↔ 5, 2 ↔ 13 (nur Straßenbahn). Mit „at“ nur, wenn der Halt ein Wechselhalt ist. */
+  M.partnerLine = (line, at) => {
+    if (!line || line.mode !== 'tram' || !M.mkLine) return null;
+    const r = (M.CONFIG.lineChanges || []).find((x) => (x.a === line.name || x.b === line.name) && (at == null || normName(at).includes(normName(x.at))));
+    return r ? M.mkLine(r.a === line.name ? r.b : r.a, line.mode) : null;
   };
-  /** Umgekehrt: aus welcher Linie wird diese Linie an diesem Halt (z. B. 13 ← 2 an City Carré)? */
-  M.ruleFrom = (line, at) => {
-    if (!line || !M.mkLine) return null;
-    const r = (M.CONFIG.lineChanges || []).find((x) => x.to === line.name && normName(at).startsWith(normName(x.at)));
-    return r ? M.mkLine(r.line, line.mode) : null;
-  };
+  M.ruleLine = M.partnerLine;
+  M.ruleFrom = M.partnerLine;
   /** „Magdeburg, Sudenburg“ → „Sudenburg“ */
   M.localArea = (a) => String(a || '').split(',').map((x) => x.trim()).filter((x) => x && !M.isMagdeburgName(x)).join(', ');
 

@@ -167,6 +167,11 @@
   C.throughNoteOk = function (text, x) {
     const t = String(text || '');
     if (!/(weiter\s+als|kommt\s+als|kommend\s+als|Linienwechsel)/i.test(t)) return true;
+    // Linienwechsel gibt es nur 1 ↔ 5 und 2 ↔ 13 am City Carré – andere Hinweise dazu nicht zeigen
+    const partner = x && x.line && M.partnerLine(x.line);
+    if (!partner) return false;
+    const num = (t.match(/als\s+(?:Linie|Tram|STR|Straßenbahn(?:linie)?)?\s*(\d{1,3})\b/i) || [])[1];
+    if (num && num !== partner.name) return false;
     const dest = (t.match(/\bnach\s+(.+?)[.!]?\s*$/i) || [])[1];
     const here = x && x.stop && x.stop.name;
     if (dest && (nn(dest) === nn(here) || (x && nn(dest) === nn(x.headsign)))) return false;
@@ -270,12 +275,17 @@
   /** Höhe der App: auf dem iPhone (Home-Bildschirm) bis ganz nach unten, auch wenn iOS die Seite kürzer meldet */
   UI.appH = () => (UI.app ? UI.app.clientHeight : 0) || window.innerHeight;
   UI.maxH = () => Math.max(200, UI.appH() - (UI.kb || 0) - UI.tabH());
+  /** iPhone als Web-App (Home-Bildschirm): ganzen Bildschirm nutzen. iOS meldet die Höhe dort teils ohne
+      Statusleiste bzw. Home-Indikator – dann fehlt unten ein Streifen. Muvit nimmt deshalb die echte Bildschirmhöhe. */
   function fitStandalone() {
     const root = document.documentElement;
-    if (navigator.standalone !== true) { root.style.removeProperty('--app-h'); return; }
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const standalone = navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches;
+    root.classList.toggle('ios-app', ios && standalone);
+    if (!(ios && standalone)) { root.style.removeProperty('--app-h'); return; }
     const portrait = window.matchMedia('(orientation: portrait)').matches;
     const full = portrait ? Math.max(screen.height, screen.width) : Math.min(screen.height, screen.width);
-    if (full > window.innerHeight + 4 && full - window.innerHeight < 120) root.style.setProperty('--app-h', full + 'px');
+    if (full > window.innerHeight + 2 && full - window.innerHeight < 200) root.style.setProperty('--app-h', full + 'px');
     else root.style.removeProperty('--app-h');
   }
   UI.minH = () => 112;
