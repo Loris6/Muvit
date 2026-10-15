@@ -511,25 +511,6 @@
   }
   /** Anfahren und Bremsen statt gleichmäßigem Gleiten */
   function smooth(f) { f = Math.min(1, Math.max(0, f)); return f * f * (3 - 2 * f); }
-  /** Linie in Metern vermessen (für die GPS-Position beim Mitfahren) */
-  function measure(coords) {
-    const lat0 = coords.length ? coords[0][1] : 52.1, kx = 111320 * Math.cos(lat0 * Math.PI / 180), ky = 110540;
-    const pts = coords.map((c) => [c[0] * kx, c[1] * ky]), cum = [0];
-    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
-    return { pts, cum, kx, ky };
-  }
-  /** Punkt auf die Linie legen: Strecke ab Start (along) und Abstand zur Linie (off) */
-  function project(m, lat, lon) {
-    const x = lon * m.kx, y = lat * m.ky;
-    let best = { along: 0, off: Infinity, x: 0, y: 0 };
-    for (let i = 1; i < m.pts.length; i++) {
-      const a = m.pts[i - 1], b = m.pts[i], dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1;
-      const r = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / L2));
-      const px = a[0] + dx * r, py = a[1] + dy * r, off = Math.hypot(x - px, y - py);
-      if (off < best.off) best = { along: m.cum[i - 1] + Math.sqrt(L2) * r, off, x: px, y: py };
-    }
-    return { along: best.along, off: best.off, lat: best.y / m.ky, lon: best.x / m.kx };
-  }
   /** Erster noch nicht passierter Halt */
   function firstOpen(rp, n) {
     if (rp.state === 'at') return rp.idx;
@@ -606,15 +587,20 @@
       /** Fahrt am angezeigten Ziel teilen (z. B. Linie 2 bis City Carré, Linie 1 bis City Carré); der Rest ist die
           Weiterfahrt als andere Linie. Maßgeblich ist das Ziel an der Haltestelle, nicht die letzte Haltestelle der Fahrt. */
       function cutTrip(t, hs) {
-        const h = M.headIdx(t, hs);
+        // 1, 2, 5, 13: Die Bahn wechselt am City Carré die Linie (1 ↔ 5, 2 ↔ 13) – auch wenn die Daten sie
+        // als eine Fahrt mit einer Nummer führen. Dort teilen, der Rest fährt als Partnerlinie.
+        const partner = M.partnerLine(t.line);
+        let h = partner ? t.stops.findIndex((s, i) => i > 0 && i < t.stops.length - 1 && M.isChangeStop(s.name)) : -1;
+        const byRule = h > 0;
+        // sonst: Fahrt endet laut Anzeige an der Haltestelle früher (z. B. „Hauptbahnhof“), danach nichts zeigen
+        if (!byRule) h = M.headIdx(t, hs);
         if (h < 0) return { main: t, rest: null };
         const ci = stopCoordIdx(t);
         const at = t.stops[h].name;
         const main = Object.assign({}, t, { headsign: at, stops: t.stops.slice(0, h + 1), coords: t.coords.slice(0, (ci[h] || 0) + 1), next: null, continues: null });
-        const rule = M.ruleLine(t.line, at);
-        const rest = Object.assign({}, t, { line: rule || t.line, rule: !!rule, stops: t.stops.slice(h), coords: t.coords.slice(ci[h] || 0), headsign: t.stops[t.stops.length - 1].name, next: null, continues: null });
-        // nach dem Ziel nur noch Leerfahrt (z. B. ins Depot): keine Weiterfahrt
-        return { main, rest: M.servesAfter(t, h) ? rest : null };
+        const rest = Object.assign({}, t, { line: partner, rule: true, stops: t.stops.slice(h), coords: t.coords.slice(ci[h] || 0), headsign: t.stops[t.stops.length - 1].name, next: null, continues: null });
+        // nach City Carré nur noch Leerfahrt (z. B. ins Depot): keine Weiterfahrt
+        return { main, rest: byRule && M.servesAfter(t, h) ? rest : null };
       }
       /** Hinweise an einem Halt: Meldungen zur Haltestelle */
       function stopInfo(s, line) {
@@ -624,16 +610,8 @@
         return h ? '<div class="tinfo" data-tinfo>' + h + '</div>' : '';
       }
       /** Halte einer Fahrt als Zeitstrahl in Linienfarbe */
-      /** Wo ist die Bahn? Beim Mitfahren zählt die GPS-Position, sonst Fahrplan/Echtzeit */
-      function progOf(pt, k, now) {
-        const r = st.ride && st.rideRp && Date.now() - st.rideRp.ts < 45000 ? st.rideRp : null;
-        if (!r || !st.trip || (k === 1 && st.next !== st.restShown)) return railProgress(pt, now);
-        const off = k === 0 ? 0 : st.trip.stops.length - 1, n = pt.stops.length;
-        const idx = r.idx - off;
-        if (idx < 0) return { state: 'before', idx: 0, f: 0 };
-        if (idx > n - 1 || (idx === n - 1 && r.state === 'between')) return { state: 'after', idx: n - 1, f: 0 };
-        return { state: r.state, idx, f: r.f || 0 };
-      }
+      /** Wo ist die Bahn? Aus den Echtzeitdaten des Fahrzeugs (Fahrplan + aktuelle Verspätung) */
+      function progOf(pt, k, now) { return railProgress(pt, now); }
       function partHTML(t, pi, now) {
         const rp = progOf(t, pi, now);
         const next = firstOpen(rp, t.stops.length);
@@ -682,11 +660,7 @@
       }
       function draw() {
         const t = st.trip, now = Date.now();
-        const ex = ctx.extra(headHTML(t.line, t.headsign, !!t.realtime) +
-          '<div class="ride-row"><button class="ride-btn' + (st.ride ? ' on' : '') + '" data-ride>' + icon('locate') + (st.ride ? 'Ich fahre mit · an' : 'Ich fahre mit') + '</button><span class="ride-note" data-ridenote></span></div>');
-        const rb = ex.querySelector('[data-ride]');
-        if (rb) rb.addEventListener('click', () => { if (st.ride) stopRide(); else { st.ride = true; startRide(); } draw(); });
-        rideNote();
+        ctx.extra(headHTML(t.line, t.headsign, !!t.realtime));
         const main = partHTML(t, 0, now);
         const at = t.stops[Math.min(main.next, t.stops.length - 1)];
         // Linienwechsel steht als eigener Abschnitt darunter – Texthinweise dazu nicht doppelt zeigen
@@ -727,17 +701,18 @@
         const key = raw && raw.tripId + '|' + (st.hs || '');
         if (!raw || st.nextTried === key) return;
         st.nextTried = key;
-        // Folgefahrt im selben Umlauf (nur wenn die Fahrt nicht schon unterwegs geteilt wurde)
-        if (!st.rest && raw.next && raw.next.stops && raw.next.stops.length && raw.continues && M.isChangeStop(raw.continues.at)) { st.next = raw.next; st.nextInfo = raw.continues; st.nextFor = key; draw(); return; }
+        // schon geteilt (Bahn fährt über City Carré hinaus) oder keine Wechsel-Linie: nichts nachzuladen
+        if (st.rest || !M.partnerLine(raw.line) || !M.isChangeStop(raw.stops[raw.stops.length - 1].name)) return;
+        // Fahrt endet am City Carré: Folgefahrt im Umlauf (Daten) bzw. die dort beginnende Fahrt der Partnerlinie
+        if (raw.next && raw.next.stops && raw.next.stops.length && raw.continues) { st.next = raw.next; st.nextInfo = raw.continues; st.nextFor = key; draw(); return; }
         const c = await M.Transit.continuation({ tripId: raw.tripId, src: raw.src, line: raw.line, headsign: st.hs || raw.headsign });
         if (!ctx.alive() || !st.raw || st.raw.tripId !== raw.tripId) return;
         st.cont = { key, c };
-        if (st.rest) { apply(st.raw, false); return; }
         if (c && c.tripId) {
           const t2 = await M.Transit.trip(c.tripId, c.src || 'motis').catch(() => null);
           if (!t2 || !ctx.alive()) return;
           // nur ab dem Umstiegshalt (falls die Fahrt der neuen Linie früher beginnt)
-          const k = t2.stops.findIndex((x) => M.localName(x.name) === M.localName(c.at));
+          const k = t2.stops.findIndex((x) => M.isChangeStop(x.name));
           if (k < 0 || k >= t2.stops.length - 1 || !st.raw || st.raw.tripId !== raw.tripId || st.rest) return;
           st.next = Object.assign({}, t2, { stops: t2.stops.slice(k) });
           st.nextInfo = c; st.nextFor = key;
@@ -756,73 +731,11 @@
       }
       function placeVehicle() {
         const t = st.raw || st.trip; if (!t) return;
-        const r = st.ride && st.rideRp && Date.now() - st.rideRp.ts < 45000 ? st.rideRp : null;
         // Fahrplan/Echtzeit mit Haltezeit an jeder Haltestelle (die Bahn hält, statt durchzufahren)
-        const prog = r || railProgress(t, Date.now());
+        const prog = railProgress(t, Date.now());
         idxs = idxs || stopCoordIdx(t);
-        const pos = r ? r.pos : prog.state === 'between' || prog.state === 'at' ? tripPos(t, idxs, prog) : null;
+        const pos = prog.state === 'between' || prog.state === 'at' ? tripPos(t, idxs, prog) : null;
         M.Map.setTripVehicle(pos, (st.next && prog.state !== 'before' && st.trip && prog.idx >= st.trip.stops.length - 1) ? st.next.line : t.line);
-      }
-      /* ---------- Ich fahre mit: GPS zeigt, wo die Bahn wirklich ist ---------- */
-      function updateRide(g) {
-        const t = st.raw; if (!t || !t.coords || t.coords.length < 2) return;
-        st.rideM = st.rideM && st.rideM.trip === t.tripId ? st.rideM : Object.assign(measure(t.coords), { trip: t.tripId, stopAt: null });
-        const m = st.rideM;
-        if (!m.stopAt) { const ci = stopCoordIdx(t); m.stopAt = ci.map((i) => m.cum[i] || 0); }
-        const pr = project(m, g.lat, g.lon);
-        st.rideFix = { ts: Date.now(), off: pr.off, acc: g.acc };
-        if (pr.off > Math.max(90, (g.acc || 0) * 1.5)) { st.rideRp = null; return; }   // nicht auf der Strecke
-        const sd = m.stopAt, n = sd.length, tol = Math.max(25, Math.min(60, g.acc || 30));
-        let i = 0;
-        while (i < n - 1 && sd[i + 1] <= pr.along) i++;
-        let rp;
-        if (Math.abs(pr.along - sd[i]) <= tol) rp = { state: 'at', idx: i, f: 0 };
-        else if (i < n - 1 && sd[i + 1] - pr.along <= tol) rp = { state: 'at', idx: i + 1, f: 0 };
-        else if (i < n - 1) rp = { state: 'between', idx: i, f: (pr.along - sd[i]) / Math.max(1, sd[i + 1] - sd[i]) };
-        else rp = { state: 'at', idx: n - 1, f: 0 };
-        // Abweichung vom Fahrplan an dieser Stelle
-        const T = t.stops.map(stopTimes), now = Date.now();
-        const plan = rp.state === 'at' ? (T[rp.idx].d || T[rp.idx].a) : (T[rp.idx].d && T[rp.idx + 1].a ? T[rp.idx].d + (T[rp.idx + 1].a - T[rp.idx].d) * rp.f : null);
-        st.rideRp = Object.assign(rp, { ts: now, pos: { lat: pr.lat, lon: pr.lon }, delay: plan ? Math.round((now - plan) / 60000) : null });
-      }
-      function startRide() {
-        if (!('geolocation' in navigator)) { M.toast('Standort ist hier nicht verfügbar', { type: 'err' }); st.ride = false; return; }
-        if (st.rideWatch != null) return;
-        const opts = { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 };
-        const onPos = (pp) => {
-          if (!ctx.alive() || !st.ride) return;
-          updateRide({ lat: pp.coords.latitude, lon: pp.coords.longitude, acc: pp.coords.accuracy });
-          placeVehicle(); tickRail(); rideNote();
-        };
-        const onErr = (err) => {
-          if (!ctx.alive() || !st.ride) return;
-          // nur bei gesperrtem Standort aufhören – im Tunnel oder zwischen Häusern einfach weiter suchen
-          if (err.code === 1) { M.toast('Standort gesperrt – bitte in den Einstellungen freigeben', { type: 'err' }); stopRide(); draw(); }
-          else rideNote();
-        };
-        st.rideWatch = navigator.geolocation.watchPosition(onPos, onErr, opts);
-        navigator.geolocation.getCurrentPosition(onPos, onErr, opts);
-        // manche Geräte melden selten neue Positionen: zusätzlich regelmäßig nachfragen
-        st.rideTimer = setInterval(() => {
-          if (st.ride && (!st.rideFix || Date.now() - st.rideFix.ts > 6000)) navigator.geolocation.getCurrentPosition(onPos, onErr, opts);
-        }, 5000);
-      }
-      function stopRide() {
-        if (st.rideWatch != null) navigator.geolocation.clearWatch(st.rideWatch);
-        if (st.rideTimer) clearInterval(st.rideTimer);
-        st.rideWatch = null; st.rideTimer = null; st.ride = false; st.rideRp = null; st.rideFix = null;
-      }
-      ctx.cleanup(() => {
-        if (st.rideWatch != null) { navigator.geolocation.clearWatch(st.rideWatch); st.rideWatch = null; }
-        if (st.rideTimer) { clearInterval(st.rideTimer); st.rideTimer = null; }
-      });
-      /** Hinweis unter dem Kopf: Status der GPS-Position */
-      function rideNote() {
-        const el = UI.extra.querySelector('[data-ridenote]');
-        if (!el) return;
-        const r = st.rideRp, f = st.rideFix;
-        el.textContent = !st.ride ? '' : !f ? 'Suche GPS-Signal …' : !r ? 'Du bist gerade nicht auf der Strecke dieser Linie.'
-          : 'Position per GPS' + (r.delay != null && Math.abs(r.delay) >= 1 ? ' · ca. ' + Math.abs(r.delay) + ' Min. ' + (r.delay > 0 ? 'später' : 'früher') + ' als geplant' : ' · im Fahrplan');
       }
       /** Fahrt teilen und anzeigen (auch erneut, wenn das Ziel an der Haltestelle erst nachträglich bekannt wird) */
       function apply(raw, fit) {
@@ -831,14 +744,10 @@
         const key = raw.tripId + '|' + (st.hs || '');
         // Weiterfahrt passt nicht mehr (anderes Ziel bekannt geworden) oder wird gleich neu aufgebaut
         if (st.next && (st.next === st.restShown || (st.nextFor && st.nextFor !== key) || cut.rest)) { st.next = null; st.nextInfo = null; st.nextFor = null; }
-        // Weiterfahrt desselben Fahrzeugs nur zeigen, wenn die neue Linie belegt ist (Daten oder bekannter Wechsel wie 1 → 5)
-        // und nur an City Carré / Hbf. Sonst endet der Verlauf am angezeigten Ziel – nie „weiter“ als dieselbe Linie.
-        const known = st.cont && st.cont.key === key ? st.cont : null;
-        const line = known ? known.c && known.c.line : cut.rest && cut.rest.rule ? cut.rest.line : null;
-        if (cut.rest && M.isChangeStop(cut.main.headsign) && !st.next && line && line.name !== raw.line.name) {
-          const r = Object.assign({}, cut.rest, { line, rule: false });
-          st.next = st.restShown = r;
-          st.nextInfo = { line, at: cut.main.headsign, headsign: cut.rest.headsign };
+        // dieselbe Bahn fährt ab City Carré als Partnerlinie weiter (1 ↔ 5, 2 ↔ 13)
+        if (cut.rest && !st.next) {
+          st.next = st.restShown = cut.rest;
+          st.nextInfo = { line: cut.rest.line, at: cut.main.headsign, headsign: cut.rest.headsign };
         }
         M.Map.drawTrip(cut.main, { fit });
         draw();
@@ -866,7 +775,6 @@
           if (!st.trip) { ctx.body.innerHTML = ''; ctx.body.appendChild(C.error(e, () => load(true))); } else if (manual) M.toast(e.message, { type: 'err' });
         }
       }
-      if (st.ride) startRide();
       if (st.trip && ctx.restoring) { M.Map.drawTrip(st.trip); draw(); } else load(false);
       ctx.every(1000, () => { placeVehicle(); tickRail(); });
       ctx.every(20000, () => { if (st.trip) draw(); });

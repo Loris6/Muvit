@@ -369,7 +369,8 @@
         const legs = [L];
         for (let k = mi + 1; k < all.length && L.tripId && all[k].tripId === L.tripId; k++) legs.push(all[k]);
         const nx = all[mi + legs.length] || null;
-        const cont = nx && nx.line && L.line && nx.line.name !== L.line.name ? nx : null;
+        const pl = M.partnerLine(L.line);
+        const cont = nx && nx.line && pl && nx.line.name === pl.name && M.isChangeStop(nx.from.name) ? nx : null;
         const rest = [];
         if (cont) for (let k = mi + legs.length; k < all.length && (rest.length === 0 || (cont.tripId && all[k].tripId === cont.tripId)); k++) rest.push(all[k]);
         const stopsOf = (ls) => {
@@ -702,7 +703,8 @@
         if (!real.dest || !sameStop(real.dest, ghost.dest)) continue;
         drop.add(ghost);
         // „Kommt als …“ nur, wenn der Linienwechsel an City Carré / Hbf passiert (dort, wo die alte Linie endet)
-        if (!real.comes && M.isChangeStop(ghost.headsign)) real.comes = { line: ghost.line, from: ghost.origin ? ghost.origin.name : '', tripId: ghost.tripId, src: ghost.src };
+        const pl = M.partnerLine(real.line);
+        if (!real.comes && pl && pl.name === ghost.line.name && M.isChangeStop(ghost.headsign)) real.comes = { line: ghost.line, from: ghost.origin ? ghost.origin.name : '', tripId: ghost.tripId, src: ghost.src };
       }
     }
     list = list.filter((x) => !drop.has(x)).sort((a, b) => (a.time || 0) - (b.time || 0));
@@ -725,37 +727,29 @@
 
     /** „Fährt weiter als …“: Endet die Fahrt, prüft Muvit, ob an der Endhaltestelle kurz danach
         am selben Bahnsteig eine andere Linie desselben Verkehrsmittels beginnt (Durchläufer). */
+    /** „Weiter als …“: Nur 1 ↔ 5 und 2 ↔ 13 am City Carré (beide Richtungen).
+        - Geht die Fahrt in den Daten über City Carré hinaus, fährt dieselbe Bahn ab dort als Partnerlinie weiter.
+        - Endet sie am City Carré: Umlauf aus den Daten, sonst die nächste dort beginnende Fahrt der Partnerlinie
+          (alle Bahnsteige, bis 25 Minuten später). Ohne solche Fahrt (z. B. letzte Fahrt ins Depot): kein Wechsel. */
     continuation(x) {
-      if (!x || !x.tripId || x.src !== 'motis' || !x.line || (x.line.mode !== 'tram' && x.line.mode !== 'bus')) return Promise.resolve(null);
+      if (!x || !x.tripId || x.src !== 'motis' || !M.partnerLine(x.line)) return Promise.resolve(null);
       return memo(M.Transit.contKey(x), async () => {
         const t = await M.Transit.trip(x.tripId, 'motis');
-        // Ziel an der Haltestelle (z. B. Linie 1 „City Carré“), auch wenn die Fahrt in den Daten weitergeht
-        const h = M.headIdx(t, x.headsign);
-        // Fahrt endet hier: Umlauf aus den Daten (Sitzenbleiben), nur als andere Linie und nur an Wechselhalten
-        if (h < 0 && t.continues) return M.isChangeStop(t.continues.at) ? t.continues : null;
-        const end = t.stops[h >= 0 ? h : t.stops.length - 1];
-        // nur an echten Linienwechsel-Punkten (City Carré, Hbf) – an Endstellen fährt einfach die nächste Linie
-        if (!end || !M.isChangeStop(end.name)) return null;
-        const first = t.stops[0], last = t.stops[t.stops.length - 1];
-        // geht es nach dem Ziel nur noch ohne Fahrgäste weiter (z. B. ins Depot), gibt es keine Weiterfahrt
-        if (h >= 0 && !M.servesAfter(t, h)) return null;
+        const partner = M.partnerLine(t.line);
+        if (!partner) return null;
+        const n = t.stops.length, ci = t.stops.findIndex((s, i) => i > 0 && M.isChangeStop(s.name));
+        if (ci < 0) return null;
+        const end = t.stops[ci], last = t.stops[n - 1];
+        if (ci < n - 1) return M.servesAfter(t, ci) ? { line: partner, headsign: last.name, at: end.name, tripId: '', src: 'motis', same: true } : null;
+        if (t.continues && t.continues.line && t.continues.line.name === partner.name) return t.continues;
         const arr = end.arrPlanned || end.arr || end.depPlanned || end.dep;
         if (!arr) return null;
-        const depHere = end.depPlanned || end.dep || null;
-        const rule = M.ruleLine(t.line, end.name);
-        const r = await M.Transit.departures({ id: end.id, name: end.name, lat: end.lat, lon: end.lon, type: 'stop', src: 'motis' }, { n: 60, time: bucket(arr.getTime() - 2 * 60000) });
-        // nur belegte Weiterfahrten: dasselbe Fahrzeug in den Daten doppelt (gleiche Zeit, gleicher Start bzw. gleiches Ziel)
-        // oder ein bekannter Wechsel (z. B. 2 → 13), dessen Fahrt hier kurz danach am selben Bahnsteig beginnt
-        const cands = r.list.filter((d) => d.line.mode === t.line.mode && d.line.name !== t.line.name && !d.cancelled && d.tripId !== x.tripId && samePlatform(d.platform, end.platform) &&
-          (h >= 0
-            ? depHere && Math.abs(d.planned - depHere) <= 90000 && d.dest && sameStop(d.dest, last)
-            : (d.origin && sameStop(d.origin, first) && Math.abs(d.planned - arr) <= 3 * 60000) ||
-              (rule && d.line.name === rule.name && d.origin && sameStop(d.origin, end) && d.planned - arr >= -60000 && d.planned - arr <= 12 * 60000)));
-        const score = (d) => (rule && d.line.name === rule.name ? 0 : 1);
-        const c = cands.sort((a, b) => (score(a) - score(b)) || (a.planned - b.planned))[0];
-        if (c) return { line: c.line, headsign: h >= 0 ? last.name : destName(c.headsign, end.name, c.dest && c.dest.name), at: end.name, tripId: c.tripId, src: 'motis', time: c.time };
-        // Daten nennen die neue Linie nicht: nur bekannte Wechsel, und nur wenn das Fahrzeug laut Daten weiterfährt
-        return h >= 0 && rule ? { line: rule, headsign: last.name, at: end.name, tripId: '', src: 'motis' } : null;
+        // alle Bahnsteige der Haltestelle (Ankunft und Abfahrt liegen am City Carré oft an verschiedenen Kanten)
+        const r = await M.Transit.departures({ name: end.name, lat: end.lat, lon: end.lon, type: 'coord', src: 'motis' }, { n: 80, time: bucket(arr.getTime() - 2 * 60000) });
+        const c = r.list.filter((d) => d.line.mode === t.line.mode && d.line.name === partner.name && !d.cancelled && d.tripId !== x.tripId &&
+          d.planned - arr >= -60000 && d.planned - arr <= 25 * 60000 && (!d.origin || M.isChangeStop(d.origin.name)))
+          .sort((a, b) => a.planned - b.planned)[0];
+        return c ? { line: c.line, headsign: destName(c.headsign, end.name, c.dest && c.dest.name), at: end.name, tripId: c.tripId, src: 'motis', time: c.time } : null;
       });
     },
     /** Schlüssel der Weiterfahrt – das angezeigte Ziel gehört dazu (gleiche Fahrt, anderes Ziel = anderer Wechselhalt) */
@@ -778,16 +772,15 @@
         return hit && hit.headsign ? hit.headsign : null;
       });
     },
-    /** „Kommt als …“: Beginnt die Fahrt hier und ist ein bekannter Linienwechsel (z. B. 13 kommt als 2),
-        endet dann kurz vorher am selben Bahnsteig die alte Linie? (Zwillinge erkennt schon die Abfahrtstafel) */
+    /** „Kommt als …“: Beginnt eine 5 (13) am City Carré, kam die Bahn kurz vorher als 1 (2) dort an. */
     comesAs(x) {
-      if (!x || !x.tripId || x.src !== 'motis' || !x.line || (x.line.mode !== 'tram' && x.line.mode !== 'bus') || !x.origin || !x.stop || !sameStop(x.origin, x.stop) || !M.isChangeStop(x.stop.name)) return Promise.resolve(null);
-      const from = M.ruleFrom(x.line, x.stop.name);
+      if (!x || !x.tripId || x.src !== 'motis' || !x.origin || !x.stop || !sameStop(x.origin, x.stop) || !M.isChangeStop(x.stop.name)) return Promise.resolve(null);
+      const from = M.partnerLine(x.line);
       if (!from) return Promise.resolve(null);
       return memo('k|' + x.tripId, async () => {
-        const r = await M.Transit.departures(x.stop, { n: 60, arrivals: true, time: bucket(x.planned.getTime() - 14 * 60000) });
-        const c = r.list.filter((a) => a.line.mode === x.line.mode && a.line.name === from.name && !a.cancelled && a.dest && sameStop(a.dest, x.stop) &&
-          x.planned - a.planned >= -60000 && x.planned - a.planned <= 12 * 60000 && samePlatform(a.platform, x.platform))
+        const r = await M.Transit.departures({ name: x.stop.name, lat: x.stop.lat, lon: x.stop.lon, type: 'coord', src: 'motis' }, { n: 80, arrivals: true, time: bucket(x.planned.getTime() - 27 * 60000) });
+        const c = r.list.filter((a) => a.line.mode === x.line.mode && a.line.name === from.name && !a.cancelled && a.dest && M.isChangeStop(a.dest.name) &&
+          x.planned - a.planned >= -60000 && x.planned - a.planned <= 25 * 60000)
           .sort((a, b) => b.planned - a.planned)[0];
         return c ? { line: c.line, from: c.origin ? c.origin.name : '', tripId: c.tripId, src: 'motis' } : null;
       });
