@@ -683,8 +683,10 @@
       const WR_WHY = {
         dienst: 'Die Wagenreihung kommt direkt von der Deutschen Bahn. Dafür muss der Muvit-Dienst eingerichtet sein (Mehr → Einstellungen → Muvit-Dienst).',
         station: 'Der Bahnhof wurde bei der Deutschen Bahn nicht gefunden.',
-        train: 'Die Deutsche Bahn kennt diesen Zug an diesem Halt nicht.'
+        train: 'Die Deutsche Bahn kennt diesen Zug an diesem Halt nicht.',
+        blocked: 'Die Deutsche Bahn gibt die Wagenreihung nur über bahn.de heraus und lässt dort zurzeit keine Abfragen von Servern zu. Sobald das wieder geht, erscheint sie hier automatisch.'
       };
+      const wrHints = (w) => (w.hints && w.hints.length ? '<div class="trip-info" style="padding-top:4px">' + w.hints.map((t) => '<div class="alert-line note">' + icon('warnFill', 'w') + '<span class="tx">' + esc(t) + '</span><span></span></div>').join('') + '</div>' : '');
       /** Halte, an denen der Zug noch abfährt */
       function wrStops(t) {
         const now = Date.now(), out = [];
@@ -732,12 +734,12 @@
           cand.map((i) => '<option value="' + i + '"' + (i === w.idx ? ' selected' : '') + '>' + esc(M.localName(t.stops[i].name)) + ' · ' + M.fmtTime(t.stops[i].depPlanned || t.stops[i].dep) + '</option>').join('') + '</select>' + icon('down', 'dd') + '</label>';
         if (w.loading) return h + C.skel(4) + '</div>';
         if (w.error) return h + C.empty('Wagenreihung nicht verfügbar', esc(w.error)) + '</div>';
-        if (!w.available) return h + C.empty('Keine Wagenreihung', WR_WHY[w.reason] || 'Für diesen Zug liegt an diesem Halt keine Wagenreihung vor. Regionalzüge und Züge anderer Betreiber haben sie oft nicht.') + '</div>';
+        if (!w.available) return h + wrHints(w) + C.empty(w.reason === 'blocked' ? 'Wagenreihung zurzeit nicht abrufbar' : 'Keine Wagenreihung', WR_WHY[w.reason] || 'Für diesen Zug liegt an diesem Halt keine Wagenreihung vor. Regionalzüge und Züge anderer Betreiber haben sie oft nicht.') + '</div>';
         const gl = (w.platform && w.platform.name) || w.platformRt || s.platform || '';
         const plan = w.plannedPlatform || w.platformPlan || '';
         const dir = w.direction ? '<span class="wr-dir">Fahrtrichtung' + icon('arrow', w.direction === 'left' ? 'l' : '') + '</span>' : '';
         h += '<div class="wr-top"><span class="wr-gl">' + (gl ? 'Gl. ' + esc(gl) : 'Gleis') + (plan && gl && plan !== gl ? ' <s class="c-red">' + esc(plan) + '</s>' : '') + '</span>' + dir + '</div>';
-        h += wrTrain(w, s);
+        h += wrHints(w) + wrTrain(w, s);
         h += '<div class="wr-legend"><span><i class="k1"></i>1. Klasse</span><span><i class="k2"></i>2. Klasse</span><span>' + icon('dining') + 'Bordrestaurant</span></div>';
         // Zugteile (z. B. geteilter ICE mit zwei Zielen)
         if (w.groups && w.groups.length > 1) h += '<div class="wr-groups">' + w.groups.map((g, i) => '<div><b>Zugteil ' + (i + 1) + '</b> ' + esc([g.category, g.number].filter(Boolean).join(' ')) + (g.destination ? ' nach ' + esc(M.localName(g.destination)) : '') + '</div>').join('') + '</div>';

@@ -207,9 +207,11 @@
     const nr = dep.line.fahrtNr || (String(dep.line.name).match(/\d+/) || [])[0];
     const cat = dep.line.productName || String(dep.line.name).replace(/\s*\d.*$/, '');
     if (!nr || !cat) return { available: false, reason: 'train' };
+    // Hinweise der DB zur Wagenreihung (z. B. „Abweichende Wagenreihung“, „Heute: 1. Klasse vorne“)
+    const hints = (dep.remarks || []).filter((x) => /^iris-(7[3-9]|8[0-7])$/.test(x.code || '')).map((x) => x.summary || x.text);
     const pw = new Date(dep.plannedWhen);
     const seq = await D.get('/db/wagenreihung', { category: cat, number: nr, eva, date: dateBerlin.format(pw), time: pw.toISOString(), admin: dep.line.adminCode || '' });
-    return Object.assign({ train: (cat + ' ' + nr).trim(), platformRt: dep.platform || '', platformPlan: dep.plannedPlatform || '' }, seq);
+    return Object.assign({ train: (cat + ' ' + nr).trim(), platformRt: dep.platform || '', platformPlan: dep.plannedPlatform || '', hints }, seq);
   };
 
   D.ready();

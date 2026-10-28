@@ -190,6 +190,8 @@ export async function wagenreihung(env, q) {
   }));
   const res = await fetch(base + '/web/api/reisebegleitung/wagenreihung/vehicle-sequence?' + params, { headers: { Accept: 'application/json', 'User-Agent': UA } });
   if (res.status === 204 || res.status === 404) return { available: false };
+  // bahn.de sperrt Abfragen von Rechenzentren (z. B. Cloudflare): kein Fehler, sondern „gesperrt“
+  if (res.status === 403 || res.status === 452) return { available: false, reason: 'blocked' };
   if (!res.ok) throw new Error('Wagenreihung von bahn.de nicht verfügbar (' + res.status + ')');
   const type = res.headers.get('content-type') || '';
   if (!/json/.test(type)) throw new Error('Wagenreihung: unerwartete Antwort von bahn.de (' + (type.split(';')[0] || 'ohne Typ') + ')');
