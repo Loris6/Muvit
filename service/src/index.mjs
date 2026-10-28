@@ -39,7 +39,9 @@ const json = (o, h, status = 200, ttl = 0) => new Response(JSON.stringify(o), {
 /** GET-Antworten kurz zwischenspeichern (schont DB und INSA, schneller für alle Nutzer) */
 async function cached(req, ttl, ctx, make) {
   const cache = typeof caches !== 'undefined' ? caches.default : null;
-  const key = new Request(new URL(req.url).toString(), { method: 'GET' });
+  // Version im Schlüssel: nach einer neuen Version nichts Altes aus dem Zwischenspeicher liefern
+  const u = new URL(req.url); u.searchParams.set('_v', String(VERSION));
+  const key = new Request(u.toString(), { method: 'GET' });
   if (cache) { const hit = await cache.match(key); if (hit) return hit; }
   const res = await make();
   if (cache && res.status === 200 && ttl) ctx.waitUntil(cache.put(key, res.clone()));
