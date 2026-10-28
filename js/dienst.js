@@ -16,7 +16,7 @@
       Object.entries(params || {}).forEach(([k, v]) => { if (v != null && v !== '') q.set(k, v instanceof Date ? v.toISOString() : String(v)); });
       const res = await fetch(D.url() + path + (q.toString() ? '?' + q : ''), { signal: ctrl.signal });
       const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j.error || 'Muvit-Dienst antwortet nicht (' + res.status + ')');
+      if (!res.ok) throw Object.assign(new Error(j.error || 'Muvit-Dienst antwortet nicht (' + res.status + ')'), { status: res.status });
       return j;
     } catch (e) {
       throw e.name === 'AbortError' ? new Error('Muvit-Dienst antwortet nicht') : e;
@@ -46,14 +46,19 @@
   };
 
   /* ---------------- Haltestellen zuordnen (gespeichert) ---------------- */
-  const MAPKEY = 'dienstStops';
+  const MAPKEY = 'dienstStops', MISS = new Map();
   async function mapped(kind, stop) {
     if (!stop || !stop.name) return null;
     const key = kind + '|' + M.normStop(stop.name) + '|' + (stop.lat != null ? stop.lat.toFixed(3) + ',' + stop.lon.toFixed(3) : '');
     const all = M.store.get(MAPKEY, {});
-    if (key in all) return all[key];
-    const r = await D.get(kind === 'db' ? '/db/station' : '/nv/stop', { name: stop.name, lat: stop.lat, lon: stop.lon });
+    // gefundene dauerhaft merken, „nicht gefunden“ nur 10 Minuten (kann an einer vorübergehenden Störung liegen)
+    if (all[key]) return all[key];
+    if (MISS.has(key) && Date.now() - MISS.get(key) < 600000) return null;
+    let r;
+    try { r = await D.get(kind === 'db' ? '/db/station' : '/nv/stop', { name: stop.name, lat: stop.lat, lon: stop.lon }); }
+    catch (e) { if (e.status === 404) { MISS.set(key, Date.now()); return null; } throw e; }
     const id = (r.station || r.stop || {}).id || null;
+    if (!id) { MISS.set(key, Date.now()); return null; }
     const keys = Object.keys(all);
     if (keys.length > 300) delete all[keys[0]];
     all[key] = id;

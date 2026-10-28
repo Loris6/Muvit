@@ -17,7 +17,7 @@ import * as DB from './db.mjs';
 import * as NV from './nv.mjs';
 import { pushRoute, pushCron } from './push.mjs';
 
-const VERSION = 2;
+const VERSION = 3;
 
 function cors(env, req) {
   const origin = req.headers.get('Origin') || '';
@@ -65,7 +65,7 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { headers: h });
     try {
       if (url.pathname === '/' || url.pathname === '/health') {
-        return json({ ok: true, service: 'muvit-dienst', version: VERSION, push: !!(env.WATCHES && env.VAPID_PRIVATE && env.VAPID_PUBLIC), db: true, nv: true }, h);
+        return json({ ok: true, service: 'muvit-dienst', version: VERSION, push: !!(env.WATCHES && env.VAPID_PRIVATE && env.VAPID_PUBLIC), db: true, nv: true, dbSource: DB.source() }, h);
       }
       const route = ROUTES[url.pathname];
       if (route && req.method === 'GET') {
@@ -73,7 +73,11 @@ export default {
         const miss = (REQUIRED[url.pathname] || []).filter((k) => !q[k]);
         if (miss.length) return json({ error: 'Es fehlt: ' + miss.join(', ') }, h, 400);
         const [ttl, fn] = route;
-        const res = await cached(req, ttl, ctx, async () => json(await fn(env, q), {}, 200, ttl));
+        // nicht gefundene Bahnhöfe/Haltestellen: 404 und nicht zwischenspeichern
+        const res = await cached(req, ttl, ctx, async () => {
+          const out = await fn(env, q);
+          return out && (out.station === null || out.stop === null) ? json({ error: 'Nicht gefunden' }, {}, 404) : json(out, {}, 200, ttl);
+        });
         const out = new Response(res.body, res);
         Object.entries(h).forEach(([k, v]) => out.headers.set(k, v));
         return out;

@@ -1,45 +1,93 @@
-/* Muvit-Dienst – Deutsche Bahn (bahn.de) für Züge: Abfahrten mit Meldungen, Fahrtverlauf, Bahnhof (EVA), Wagenreihung.
-   Abfragen über db-vendo-client (Profil „dbweb“, dieselben Schnittstellen wie bahn.de). */
+/* Muvit-Dienst – Deutsche Bahn für Züge: Abfahrten mit Meldungen, Fahrtverlauf, Bahnhof (EVA), Wagenreihung.
+   Quellen der Reihe nach (die zuletzt erfolgreiche zuerst), damit eine gesperrte Schnittstelle nicht alles lahmlegt:
+   1. bahn.de (db-vendo-client, Profil „dbweb“)
+   2. DB Navigator (db-vendo-client, Profil „dbnav“)
+   3. db.transport.rest (öffentliche REST-Schnittstelle, gleiches Datenformat) */
 import { createClient } from 'db-vendo-client';
 import { profile as dbweb } from 'db-vendo-client/p/dbweb/index.js';
+import { profile as dbnav } from 'db-vendo-client/p/dbnav/index.js';
 import { UA, num, normName, pick } from './util.mjs';
 
-let client = null, clientKey = null;
-/** env.DBWEB_BASE / env.BAHN_WWW leiten die Abfragen im Test auf einen lokalen Server um */
-function db(env) {
-  const key = env.DBWEB_BASE || '';
-  if (client && clientKey === key) return client;
-  let p = dbweb;
-  if (env.DBWEB_BASE) {
-    p = { ...dbweb };
+const PROFILES = { dbweb, dbnav };
+const clients = {};
+let preferred = null;
+/** env.DBWEB_BASE leitet bahn.de im Test auf einen lokalen Server um */
+function db(env, name) {
+  const key = name + '|' + (env.DBWEB_BASE || '');
+  if (clients[key]) return clients[key];
+  let p = PROFILES[name];
+  if (name === 'dbweb' && env.DBWEB_BASE) {
+    p = { ...p };
     for (const k of Object.keys(p)) if (typeof p[k] === 'string' && p[k].startsWith('https://int.bahn.de')) p[k] = p[k].replace('https://int.bahn.de', env.DBWEB_BASE);
   }
-  client = createClient(p, UA, { enrichStations: false });
-  clientKey = key;
-  return client;
+  clients[key] = createClient(p, UA, { enrichStations: false });
+  return clients[key];
 }
-export const _setClient = (c) => { client = c; clientKey = ''; };
+/** db.transport.rest im selben Format wie db-vendo-client */
+function rest(env) {
+  const base = env.DB_REST || 'https://v6.db.transport.rest';
+  const get = async (path, params) => {
+    const res = await fetch(base + path + '?' + new URLSearchParams(pick(params || {})), { headers: { Accept: 'application/json', 'User-Agent': UA } });
+    if (!res.ok) throw new Error('db.transport.rest ' + res.status);
+    return res.json();
+  };
+  return {
+    nearby: (loc, o) => get('/locations/nearby', { latitude: loc.latitude, longitude: loc.longitude, results: o.results, distance: o.distance, language: 'de' }),
+    locations: (q, o) => get('/locations', { query: q, results: o.results, addresses: false, poi: false, language: 'de' }),
+    departures: (id, o) => get('/stops/' + encodeURIComponent(id) + '/departures', { when: o.when.toISOString(), duration: o.duration, remarks: true, language: 'de' }),
+    trip: (id) => get('/trips/' + encodeURIComponent(id), { stopovers: true, remarks: true, polyline: false, language: 'de' })
+  };
+}
+let testClient = null;
+export const _setClient = (c) => { testClient = c; };
+const errText = (e) => String((e && (e.message || e.code)) || e || 'Fehler').slice(0, 160);
+
+/** Abfrage über die Quellen der Reihe nach; liefert das erste brauchbare Ergebnis.
+    Mit „allowNull“: Haben Quellen geantwortet, aber nichts gefunden, ist das Ergebnis null statt eines Fehlers. */
+async function tryAll(env, fn, allowNull) {
+  if (testClient) return fn(testClient, 'test');
+  const names = ['dbweb', 'dbnav', 'rest'];
+  const order = preferred ? [preferred].concat(names.filter((n) => n !== preferred)) : names;
+  const errs = [];
+  let answered = false;
+  for (const name of order) {
+    try {
+      const r = await fn(name === 'rest' ? rest(env) : db(env, name), name);
+      if (r != null) { preferred = name; return r; }
+      answered = true;
+      errs.push(name + ': nichts gefunden');
+    } catch (e) { errs.push(name + ': ' + errText(e)); }
+  }
+  if (allowNull && answered) return null;
+  const err = new Error('Deutsche Bahn: ' + errs.join(' · '));
+  err.code = 'DB_UNAVAILABLE';
+  throw err;
+}
+/** Welche Quelle zuletzt geantwortet hat (für /health) */
+export const source = () => preferred;
 
 const nRemark = (r) => ({ type: r.type || 'hint', code: r.code || null, summary: r.summary || null, text: r.text || '' });
 const nLine = (l) => (l ? { name: l.name || '', productName: l.productName || '', product: l.product || '', fahrtNr: l.fahrtNr || '', adminCode: l.adminCode || '', operator: (l.operator && l.operator.name) || '' } : null);
 
-/** Bahnhof der DB (EVA-Nummer) zu einer Haltestelle: zuerst in der Nähe, sonst über den Namen */
+/** Bahnhof der DB (EVA-Nummer) zu einer Haltestelle: zuerst in der Nähe, sonst über den Namen. null = nicht gefunden */
 export async function station(env, q) {
-  const c = db(env);
   const want = normName(q.name);
-  let list = [];
-  if (q.lat && q.lon) {
-    list = await c.nearby({ type: 'location', latitude: +q.lat, longitude: +q.lon }, { results: 8, distance: 600, language: 'de' }).catch(() => []);
-  }
-  if (!list.length && q.name) list = await c.locations(q.name, { results: 6, addresses: false, poi: false, language: 'de' }).catch(() => []);
-  list = list.filter((s) => s && s.id && (s.type === 'stop' || s.type === 'station'));
-  const best = list.find((s) => want && normName(s.name) === want) || list.find((s) => want && (normName(s.name).includes(want) || want.includes(normName(s.name)))) || list[0];
-  return best ? { id: best.id, name: best.name, location: best.location || null } : null;
+  const pickBest = (list) => {
+    list = (list || []).filter((s) => s && s.id && (s.type === 'stop' || s.type === 'station'));
+    const best = list.find((s) => want && normName(s.name) === want) || list.find((s) => want && (normName(s.name).includes(want) || want.includes(normName(s.name)))) || list[0];
+    return best ? { id: best.id, name: best.name, location: best.location || null } : null;
+  };
+  return tryAll(env, async (c) => {
+    let best = null;
+    if (q.lat && q.lon) best = pickBest(await c.nearby({ type: 'location', latitude: +q.lat, longitude: +q.lon }, { results: 8, distance: 600, language: 'de' }));
+    if (!best && q.name) best = pickBest(await c.locations(q.name, { results: 6, addresses: false, poi: false, language: 'de' }));
+    return best;
+  }, true);
 }
 
 /** Abfahrten eines Bahnhofs mit Gleis, Verspätung und Meldungen (z. B. „Verspätung aus vorheriger Fahrt“) */
 export async function departures(env, q) {
-  const r = await db(env).departures(q.eva, { when: q.when ? new Date(q.when) : new Date(), duration: Math.min(240, +(q.duration || 120)), remarks: true, language: 'de' });
+  const r = await tryAll(env, (c) => c.departures(q.eva, { when: q.when ? new Date(q.when) : new Date(), duration: Math.min(240, +(q.duration || 120)), remarks: true, language: 'de' }));
   const list = Array.isArray(r) ? r : r.departures || [];
   return {
     departures: list.map((d) => ({
@@ -52,7 +100,7 @@ export async function departures(env, q) {
 
 /** Fahrtverlauf eines Zuges mit Echtzeit und Meldungen je Halt */
 export async function trip(env, q) {
-  const r = await db(env).trip(q.id, { stopovers: true, remarks: true, polyline: false, language: 'de' });
+  const r = await tryAll(env, (c) => c.trip(q.id, { stopovers: true, remarks: true, polyline: false, language: 'de' }));
   const t = r.trip || r;
   return {
     trip: {
@@ -117,6 +165,8 @@ export async function wagenreihung(env, q) {
   }));
   const res = await fetch(base + '/web/api/reisebegleitung/wagenreihung/vehicle-sequence?' + params, { headers: { Accept: 'application/json', 'User-Agent': UA } });
   if (res.status === 204 || res.status === 404) return { available: false };
-  if (!res.ok) throw new Error('Wagenreihung nicht verfügbar (' + res.status + ')');
+  if (!res.ok) throw new Error('Wagenreihung von bahn.de nicht verfügbar (' + res.status + ')');
+  const type = res.headers.get('content-type') || '';
+  if (!/json/.test(type)) throw new Error('Wagenreihung: unerwartete Antwort von bahn.de (' + (type.split(';')[0] || 'ohne Typ') + ')');
   return normalizeSequence(await res.json());
 }
