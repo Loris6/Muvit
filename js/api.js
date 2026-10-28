@@ -327,6 +327,21 @@
           importance: p.importance || 0, modes: (p.modes || []).map(modeKey), type: 'stop', src: 'motis'
         }));
       },
+      /** Bahnhöfe (Halte von S-Bahn, Regional- und Fernverkehr) in einem Gebiet. null: Der Server nennt keine
+          Verkehrsmittel je Halt – dann helfen die Linienverläufe (siehe M.Transit.stations). */
+      async railStops(b) {
+        const RAIL = ['SUBURBAN', 'REGIONAL_RAIL', 'REGIONAL_FAST_RAIL', 'RAIL', 'LONG_DISTANCE', 'HIGHSPEED_RAIL', 'NIGHT_RAIL'];
+        const box = { min: b.minLat.toFixed(5) + ',' + b.maxLon.toFixed(5), max: b.maxLat.toFixed(5) + ',' + b.minLon.toFixed(5) };
+        let res;
+        try { res = await call('railstops', ['v6', 'v1'], '/map/stops', Object.assign({ modes: RAIL }, box), { ttl: 86400000, timeout: 25000 }); }
+        catch (e) { if (e.status !== 400 && e.status !== 422) throw e; res = await call('railstops', ['v6', 'v1'], '/map/stops', box, { ttl: 86400000, timeout: 25000 }); }
+        const list = (res || []).filter((p) => p.stopId && p.lat != null);
+        if (!list.some((p) => p.modes && p.modes.length)) return null;
+        return list.filter((p) => (p.modes || []).some((m) => RAIL.includes(m))).map((p) => ({
+          id: p.stopId, parentId: p.parentId || '', name: LN(p.name), lat: p.lat, lon: p.lon,
+          importance: p.importance || 0, modes: (p.modes || []).map(modeKey), type: 'stop', src: 'motis', rail: true
+        }));
+      },
       async departures(stop, o) {
         o = o || {};
         const params = { n: o.n || 40, time: o.time || null, mode: modesOut(o.modes), language: 'de', arriveBy: o.arrivals ? true : null };
@@ -726,6 +741,7 @@
     trip: (tripId, src) => (src === 'db' ? DB.trip(tripId) : withFallback('trip', [tripId])),
     vehicles: (b, z) => Motis.vehicles(b, z),
     stopsInBox: (a, b, c, e) => Motis.stopsInBox(a, b, c, e),
+    railStops: (b) => Motis.railStops(b),
     dbPrice: (f, t, time) => DB.price(f, t, time),
 
     /** „Fährt weiter als …“: Endet die Fahrt, prüft Muvit, ob an der Endhaltestelle kurz danach
@@ -888,6 +904,21 @@
       const seen = new Set(), list = [];
       top.concat(Array.from(pick.values())).forEach((g) => { if (!seen.has(g.name)) { seen.add(g.name); list.push(g); } });
       return { list, top };
+    },
+
+    /** Alle Bahnhöfe im Bediengebiet der MVB (S-Bahn, Regional- und Fernverkehr), zusammengefasst je Bahnhof.
+        Zuerst die Haltestellen mit Verkehrsmitteln, sonst die Halte aus den Linienverläufen der Züge. */
+    async stations() {
+      const B = M.CONFIG.serviceBBox;
+      let raw = await Motis.railStops(B).catch(() => null);
+      if (!raw || !raw.length) {
+        const routes = await M.Transit.cityRoutes().catch(() => []);
+        raw = [];
+        routes.filter((r) => M.isRail(r.line.mode)).forEach((r) => r.variants.forEach((v) => v.stops.forEach((st) => {
+          if (st && M.inService(st.lat, st.lon)) raw.push({ id: st.id, name: st.name, lat: st.lat, lon: st.lon, importance: 1, modes: [r.line.mode], type: 'stop', src: 'motis', rail: true });
+        })));
+      }
+      return M.Transit.groupStops(raw.filter((x) => M.inService(x.lat, x.lon))).map((g) => Object.assign(g, { rail: true }));
     },
 
     /** Alle Linien im Bediengebiet der MVB mit ihren Verläufen – auch Sonderlinien (z. B. 15) und Nachtlinien.
