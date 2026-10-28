@@ -1,58 +1,131 @@
-/* Muvit-Dienst – Deutsche Bahn (bahn.de) für Züge: Abfahrten mit Meldungen, Fahrtverlauf, Bahnhof (EVA), Wagenreihung.
-   Abfragen über db-vendo-client (Profil „dbweb“, dieselben Schnittstellen wie bahn.de). */
+/* Muvit-Dienst – Deutsche Bahn für Züge: Abfahrten mit Meldungen, Fahrtverlauf, Bahnhof (EVA), Wagenreihung.
+   Quellen der Reihe nach (die zuletzt erfolgreiche zuerst), damit eine gesperrte Schnittstelle nicht alles lahmlegt:
+   1. bahn.de (db-vendo-client, Profil „dbweb“)
+   2. DB Navigator (db-vendo-client, Profil „dbnav“)
+   3. INSA (hafas-client, Profil „insa“) – enthält alle Züge mit Echtzeit der DB
+   4. db.transport.rest (öffentliche REST-Schnittstelle, gleiches Datenformat)
+   Gesperrte oder langsame Quellen werden 10 Minuten übersprungen. */
 import { createClient } from 'db-vendo-client';
 import { profile as dbweb } from 'db-vendo-client/p/dbweb/index.js';
+import { profile as dbnav } from 'db-vendo-client/p/dbnav/index.js';
 import { UA, num, normName, pick } from './util.mjs';
+import { insaClient } from './nv.mjs';
+import * as IRIS from './iris.mjs';
 
-let client = null, clientKey = null;
-/** env.DBWEB_BASE / env.BAHN_WWW leiten die Abfragen im Test auf einen lokalen Server um */
-function db(env) {
-  const key = env.DBWEB_BASE || '';
-  if (client && clientKey === key) return client;
-  let p = dbweb;
-  if (env.DBWEB_BASE) {
-    p = { ...dbweb };
+const PROFILES = { dbweb, dbnav };
+const clients = {};
+let preferred = null;
+/** env.DBWEB_BASE leitet bahn.de im Test auf einen lokalen Server um */
+function db(env, name) {
+  const key = name + '|' + (env.DBWEB_BASE || '');
+  if (clients[key]) return clients[key];
+  let p = PROFILES[name];
+  if (name === 'dbweb' && env.DBWEB_BASE) {
+    p = { ...p };
     for (const k of Object.keys(p)) if (typeof p[k] === 'string' && p[k].startsWith('https://int.bahn.de')) p[k] = p[k].replace('https://int.bahn.de', env.DBWEB_BASE);
   }
-  client = createClient(p, UA, { enrichStations: false });
-  clientKey = key;
-  return client;
+  clients[key] = createClient(p, UA, { enrichStations: false });
+  return clients[key];
 }
-export const _setClient = (c) => { client = c; clientKey = ''; };
+/** db.transport.rest im selben Format wie db-vendo-client */
+function rest(env) {
+  const base = env.DB_REST || 'https://v6.db.transport.rest';
+  const get = async (path, params) => {
+    const res = await fetch(base + path + '?' + new URLSearchParams(pick(params || {})), { headers: { Accept: 'application/json', 'User-Agent': UA } });
+    if (!res.ok) throw new Error('db.transport.rest ' + res.status);
+    return res.json();
+  };
+  return {
+    nearby: (loc, o) => get('/locations/nearby', { latitude: loc.latitude, longitude: loc.longitude, results: o.results, distance: o.distance, language: 'de' }),
+    locations: (q, o) => get('/locations', { query: q, results: o.results, addresses: false, poi: false, language: 'de' }),
+    departures: (id, o) => get('/stops/' + encodeURIComponent(id) + '/departures', { when: o.when.toISOString(), duration: o.duration, remarks: true, language: 'de' }),
+    trip: (id) => get('/trips/' + encodeURIComponent(id), { stopovers: true, remarks: true, polyline: false, language: 'de' })
+  };
+}
+let testClient = null;
+export const _setClient = (c) => { testClient = c; };
+const errText = (e) => String((e && (e.message || e.code)) || e || 'Fehler').slice(0, 160);
+
+const SOURCES = ['dbweb', 'dbnav', 'insa', 'rest'];
+const down = {};
+const SKIP = 10 * 60000, TIMEOUT = 6000;
+const withTimeout = (p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('Zeitüberschreitung')), TIMEOUT))]);
+const clientFor = (env, name) => (name === 'rest' ? rest(env) : name === 'insa' ? insaClient(env) : db(env, name));
+
+/** Abfrage über die Quellen der Reihe nach; liefert das erste brauchbare Ergebnis.
+    Mit „allowNull“: Haben Quellen geantwortet, aber nichts gefunden, ist das Ergebnis null statt eines Fehlers. */
+async function tryAll(env, fn, allowNull) {
+  if (testClient) return fn(testClient, 'test');
+  const names = String(env.DB_SOURCES || SOURCES.join(',')).split(',').map((x) => x.trim()).filter((x) => SOURCES.includes(x));
+  const now = Date.now();
+  const up = names.filter((n) => !(down[n] && now - down[n] < SKIP));
+  const list = up.length ? up : names;
+  const order = preferred && list.includes(preferred) ? [preferred].concat(list.filter((n) => n !== preferred)) : list;
+  const errs = [];
+  let answered = false;
+  for (const name of order) {
+    try {
+      const r = await withTimeout(fn(clientFor(env, name), name));
+      delete down[name];
+      if (r != null) { preferred = name; return r; }
+      answered = true;
+      errs.push(name + ': nichts gefunden');
+    } catch (e) { down[name] = Date.now(); errs.push(name + ': ' + errText(e)); }
+  }
+  if (allowNull && answered) return null;
+  const err = new Error('Deutsche Bahn: ' + errs.join(' · '));
+  err.code = 'DB_UNAVAILABLE';
+  throw err;
+}
+/** Welche Quelle zuletzt geantwortet hat (für /health) */
+export const source = () => preferred;
 
 const nRemark = (r) => ({ type: r.type || 'hint', code: r.code || null, summary: r.summary || null, text: r.text || '' });
 const nLine = (l) => (l ? { name: l.name || '', productName: l.productName || '', product: l.product || '', fahrtNr: l.fahrtNr || '', adminCode: l.adminCode || '', operator: (l.operator && l.operator.name) || '' } : null);
 
-/** Bahnhof der DB (EVA-Nummer) zu einer Haltestelle: zuerst in der Nähe, sonst über den Namen */
+/** Bahnhof der DB (EVA-Nummer) zu einer Haltestelle: zuerst in der Nähe, sonst über den Namen. null = nicht gefunden */
 export async function station(env, q) {
-  const c = db(env);
   const want = normName(q.name);
-  let list = [];
-  if (q.lat && q.lon) {
-    list = await c.nearby({ type: 'location', latitude: +q.lat, longitude: +q.lon }, { results: 8, distance: 600, language: 'de' }).catch(() => []);
-  }
-  if (!list.length && q.name) list = await c.locations(q.name, { results: 6, addresses: false, poi: false, language: 'de' }).catch(() => []);
-  list = list.filter((s) => s && s.id && (s.type === 'stop' || s.type === 'station'));
-  const best = list.find((s) => want && normName(s.name) === want) || list.find((s) => want && (normName(s.name).includes(want) || want.includes(normName(s.name)))) || list[0];
-  return best ? { id: best.id, name: best.name, location: best.location || null } : null;
+  const pickBest = (list) => {
+    list = (list || []).filter((s) => s && s.id && (s.type === 'stop' || s.type === 'station'));
+    const best = list.find((s) => want && normName(s.name) === want) || list.find((s) => want && (normName(s.name).includes(want) || want.includes(normName(s.name)))) || list[0];
+    return best ? { id: best.id, name: best.name, location: best.location || null } : null;
+  };
+  const isEva = (id) => /^80\d{5}$/.test(String(id));
+  const st = await tryAll(env, async (c) => {
+    let best = null;
+    if (q.lat && q.lon) best = pickBest(await c.nearby({ type: 'location', latitude: +q.lat, longitude: +q.lon }, { results: 8, distance: 600, language: 'de' }));
+    if (!best && q.name) best = pickBest(await c.locations(q.name, { results: 6, addresses: false, poi: false, language: 'de' }));
+    return best;
+  }, true);
+  if (!st) return null;
+  // EVA-Nummer der DB (für IRIS und Wagenreihung) – INSA nutzt eigene Nummern
+  st.eva = isEva(st.id) ? String(st.id) : ((await IRIS.station(st.name).catch(() => null)) || {}).eva || null;
+  return st;
 }
 
 /** Abfahrten eines Bahnhofs mit Gleis, Verspätung und Meldungen (z. B. „Verspätung aus vorheriger Fahrt“) */
 export async function departures(env, q) {
-  const r = await db(env).departures(q.eva, { when: q.when ? new Date(q.when) : new Date(), duration: Math.min(240, +(q.duration || 120)), remarks: true, language: 'de' });
+  const when = q.when ? new Date(q.when) : new Date(), duration = Math.min(240, +(q.duration || 120));
+  const r = await tryAll(env, (c) => c.departures(q.eva, { when, duration, remarks: true, language: 'de' }));
   const list = Array.isArray(r) ? r : r.departures || [];
-  return {
-    departures: list.map((d) => ({
-      tripId: d.tripId, when: d.when, plannedWhen: d.plannedWhen, delay: d.delay != null ? d.delay : null,
-      platform: d.platform || null, plannedPlatform: d.plannedPlatform || null, cancelled: !!d.cancelled,
-      direction: d.direction || '', line: nLine(d.line), remarks: (d.remarks || []).map(nRemark).filter((x) => x.text || x.summary)
-    }))
-  };
+  const out = list.map((d) => ({
+    tripId: d.tripId, when: d.when, plannedWhen: d.plannedWhen, delay: d.delay != null ? d.delay : null,
+    platform: d.platform || null, plannedPlatform: d.plannedPlatform || null, cancelled: !!d.cancelled,
+    direction: d.direction || '', line: nLine(d.line), remarks: (d.remarks || []).map(nRemark).filter((x) => x.text || x.summary)
+  }));
+  // Verspätungsgründe, Qualitätshinweise, Ausfälle und Gleiswechsel aus IRIS (DB-Abfahrtstafel)
+  const eva = q.iris || (/^80\d{5}$/.test(String(q.eva)) ? q.eva : null);
+  if (eva && !testClient) {
+    const trains = await IRIS.board(eva, new Date(when.getTime() - 5 * 60000), duration + 5).catch(() => null);
+    if (trains) IRIS.merge(out, trains);
+  }
+  return { departures: out };
 }
 
 /** Fahrtverlauf eines Zuges mit Echtzeit und Meldungen je Halt */
 export async function trip(env, q) {
-  const r = await db(env).trip(q.id, { stopovers: true, remarks: true, polyline: false, language: 'de' });
+  const r = await tryAll(env, (c) => c.trip(q.id, { stopovers: true, remarks: true, polyline: false, language: 'de' }));
   const t = r.trip || r;
   return {
     trip: {
@@ -117,6 +190,10 @@ export async function wagenreihung(env, q) {
   }));
   const res = await fetch(base + '/web/api/reisebegleitung/wagenreihung/vehicle-sequence?' + params, { headers: { Accept: 'application/json', 'User-Agent': UA } });
   if (res.status === 204 || res.status === 404) return { available: false };
-  if (!res.ok) throw new Error('Wagenreihung nicht verfügbar (' + res.status + ')');
+  // bahn.de sperrt Abfragen von Rechenzentren (z. B. Cloudflare): kein Fehler, sondern „gesperrt“
+  if (res.status === 403 || res.status === 452) return { available: false, reason: 'blocked' };
+  if (!res.ok) throw new Error('Wagenreihung von bahn.de nicht verfügbar (' + res.status + ')');
+  const type = res.headers.get('content-type') || '';
+  if (!/json/.test(type)) throw new Error('Wagenreihung: unerwartete Antwort von bahn.de (' + (type.split(';')[0] || 'ohne Typ') + ')');
   return normalizeSequence(await res.json());
 }

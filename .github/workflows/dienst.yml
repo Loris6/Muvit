@@ -108,6 +108,17 @@ jobs:
           echo "SERVICE_URL=$URL" >> "$GITHUB_ENV"
           curl -fsS "$URL/health" && echo
 
+      - name: Mit echten Daten prüfen
+        if: steps.check.outputs.ok == 'true'
+        run: |
+          # neue Version braucht einige Sekunden, bis sie überall läuft
+          for i in 1 2 3 4 5 6; do
+            V=$(curl -fsS "$SERVICE_URL/health" | node -e 'console.log(JSON.parse(require("fs").readFileSync(0,"utf8")).version)' || true)
+            [ "$V" = "$(grep -oE 'VERSION = [0-9]+' src/index.mjs | grep -oE '[0-9]+')" ] && break
+            sleep 5
+          done
+          node scripts/smoke.mjs "$SERVICE_URL" || echo "::warning::Nicht alle Abfragen des Muvit-Dienstes waren erfolgreich (Protokoll oben)."
+
       - name: Adresse in config.json eintragen
         if: steps.check.outputs.ok == 'true'
         working-directory: .

@@ -25,8 +25,12 @@ NV._setClient({
   ] }),
   trip: async (id) => ({ trip: { id, line: { name: 'STR 2' }, direction: 'City Carré', remarks: [{ type: 'hint', text: 'Fahrt wird ab City Carré als Linie 13 fortgesetzt' }], stopovers: [] } }),
   remarks: async () => ({ remarks: [
-    { id: 'h1', summary: 'Magdeburg: Bauarbeiten Ernst-Reuter-Allee', text: 'Linien 2 und 5 fahren eine Umleitung.', priority: 50, company: 'MVB', affectedLines: [{ name: 'STR 2', product: 'tram' }] },
-    { id: 'h2', summary: 'Halle: Gleisarbeiten', text: 'Linie 3 in Halle', priority: 80, company: 'HAVAG' }
+    { id: 'h1', summary: 'Bauarbeiten Ernst-Reuter-Allee', text: 'Linien 2 und 5 fahren eine Umleitung.', priority: 50, affectedLines: [{ name: 'STR 2', product: 'tram', operator: { name: 'Magdeburger Verkehrsbetriebe GmbH & Co. KG' } }, { name: 'STR 2', product: 'tram', operator: { name: 'MVB' } }] },
+    { id: 'h2', summary: 'Gleisbauarbeiten', text: 'Linie 7 in der Magdeburger Straße', priority: 80, affectedLines: [{ name: 'Str 7', product: 'tram', operator: { name: 'HAVAG' } }] },
+    { id: 'h3', summary: 'Haltestellenausfall: Halle, Kaufland Trotha', text: '', priority: 70, edges: [{ fromLocation: { name: 'Halle, Trotha', crd: { x: 11950000, y: 51520000 } } }] },
+    { id: 'h4', summary: 'Haltestelle Milchweg verlegt', text: '', priority: 40, edges: [{ fromLocation: { name: 'Magdeburg, Milchweg', crd: { x: 11632000, y: 52172000 } } }] },
+    { id: 'h5', summary: 'Sperrung in der Innenstadt von Magdeburg', text: '', priority: 30 },
+    { id: 'h6', summary: 'Umleitung Magdeburger Straße', text: 'Halle', priority: 30 }
   ] })
 });
 
@@ -40,6 +44,8 @@ let r = await call('/health');
 assert.equal(r.status, 200); assert.equal(r.body.push, false); assert.equal(r.cors, 'https://loris6.github.io');
 r = await call('/db/station?name=Hauptbahnhof&lat=52.13&lon=11.62');
 assert.equal(r.body.station.id, '8010224');
+r = await call('/nv/stop?name=Nirgendwo');
+assert.equal(r.status, 404);
 r = await call('/db/departures?eva=8010224');
 assert.equal(r.body.departures[0].remarks[0].text, 'Verspätung aus vorheriger Fahrt');
 assert.equal(r.body.departures[0].line.operator, 'DB Fernverkehr AG');
@@ -52,7 +58,8 @@ assert.equal(r.body.departures[0].line.name, 'STR 13');
 r = await call('/nv/trip?id=x');
 assert.match(r.body.trip.remarks[0].text, /als Linie 13/);
 r = await call('/nv/remarks');
-assert.deepEqual(r.body.remarks.map((x) => x.id), ['h1']);
+assert.deepEqual(r.body.remarks.map((x) => x.id + ':' + x.why), ['h1:mvb', 'h4:ort', 'h5:text']);
+assert.equal(r.body.remarks[0].lines.length, 1);
 r = await call('/vapid');
 assert.equal(r.body.publicKey, null);
 
@@ -71,4 +78,22 @@ assert.equal(seq.vehicles[0].engine, true);
 assert.equal(seq.vehicles[2].dining && seq.vehicles[2].closed, true);
 assert.equal(seq.platform.sectors.length, 2);
 assert.equal(DB.normalizeSequence(null).available, false);
+// IRIS: Plan + Änderungen → Meldungen je Zug
+import * as IRIS from '../src/iris.mjs';
+const PLAN = '<timetable station="Magdeburg Hbf"><s id="-1-2610281744-5"><tl f="F" t="p" o="80" c="IC" n="2444"/><ar pt="2610281742" pp="1"/><dp pt="2610281744" pp="1" ppth="Berlin"/></s>' +
+  '<s id="-2-2610281750-3"><tl c="RE" n="17512"/><dp pt="2610281750" pp="4" l="1"/></s></timetable>';
+const FCHG = '<timetable station="Magdeburg Hbf" eva="8010224"><s id="-1-2610281744-5"><dp ct="2610281759" cp="2"><m id="r1" t="d" c="36" ts="2610281700"/><m id="r2" t="d" c="48" ts="2610281720"/><m id="r3" t="q" c="80" ts="2610281701"/><m id="r4" t="q" c="88" ts="2610281702"/></dp></s>' +
+  '<s id="-2-2610281750-3"><dp cs="c"/></s></timetable>';
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (u) => new Response(/\/plan\//.test(u) ? PLAN : /\/fchg\//.test(u) ? FCHG : '<stations><station name="Magdeburg Hbf" eva="8010224"/></stations>', { status: 200 });
+const trains = await IRIS.board('8010224', new Date('2026-10-28T17:30:00+01:00'), 60);
+const ic = trains.find((t) => t.number === '2444');
+assert.equal(ic.changedPlatform, '2');
+assert.deepEqual(ic.messages.map((m) => m.summary), ['Verspätung aus vorheriger Fahrt', 'Reparatur am Zug', 'Abweichende Wagenreihung']);
+assert.equal(trains.find((t) => t.number === '17512').cancelled, true);
+assert.equal(IRIS._irisTime('2610281744').toISOString(), '2026-10-28T16:44:00.000Z');
+const merged = IRIS.merge([{ plannedWhen: '2026-10-28T17:44:00+01:00', line: { name: 'IC 2444', fahrtNr: '2444' }, remarks: [] }], trains);
+assert.equal(merged[0].remarks[0].summary, 'Verspätung aus vorheriger Fahrt');
+assert.equal((await IRIS.station('Magdeburg Hbf')).eva, '8010224');
+globalThis.fetch = realFetch;
 console.log('Muvit-Dienst: alle Tests bestanden');

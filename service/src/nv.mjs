@@ -14,6 +14,8 @@ function nv(env) {
   return client;
 }
 export const _setClient = (c) => { client = c; clientKey = ''; };
+/** INSA-Client (auch für Züge: INSA kennt den ganzen Bahnverkehr mit Echtzeit der DB) */
+export const insaClient = (env) => nv(env);
 
 const nRemark = (r) => ({ type: r.type || 'hint', code: r.code || null, summary: r.summary || null, text: r.text || '' });
 const nLine = (l) => (l ? { name: l.name || '', productName: l.productName || '', product: l.product || '', fahrtNr: l.fahrtNr || '', operator: (l.operator && l.operator.name) || '' } : null);
@@ -60,21 +62,47 @@ export async function trip(env, q) {
   };
 }
 
-/** Aktuelle Störungsmeldungen (HIM) – nur Magdeburg / MVB */
-const MDRE = /magdeburg|\bmvb\b|magdeburger verkehrsbetriebe|biederitz/i;
+/** Aktuelle Störungsmeldungen (HIM) – nur MVB bzw. Magdeburg. INSA meldet für ganz Sachsen-Anhalt, deshalb:
+    1. betroffene Linie der MVB → ja
+    2. sonst: Orte der Meldung mit Koordinaten → ja, wenn einer im Bediengebiet liegt
+    3. ohne Linien und Orte: nur, wenn der Text Magdeburg oder die MVB nennt („Magdeburger Straße“ in Halle zählt nicht) */
+const MVB = /\bMVB\b|Magdeburger Verkehrsbetriebe/i;
+const MD_TEXT = /\bMagdeburg(?!er\s+(?:Str|Straße|Platz|Chaussee|Allee|Weg|Tor))\b|\bMVB\b|Magdeburger Verkehrsbetriebe|\bBiederitz\b/i;
+/** Koordinaten aus geparsten (location) oder rohen HAFAS-Orten (crd in Mikrograd) */
+const coord = (l) => {
+  if (!l) return null;
+  if (l.location && l.location.latitude != null) return l.location;
+  if (l.latitude != null) return l;
+  if (l.crd && l.crd.x != null) return { latitude: l.crd.y / 1e6, longitude: l.crd.x / 1e6 };
+  return null;
+};
+const opName = (l) => (l && l.operator && (l.operator.name || l.operator.id)) || '';
+function places(w) {
+  return [].concat(
+    (w.edges || []).flatMap((e) => [e.fromLocation, e.toLocation]),
+    (w.events || []).flatMap((e) => [e.fromLocation, e.toLocation]),
+    w.fromStops || [], w.toStops || []
+  ).filter(Boolean);
+}
+export function relevant(w) {
+  const lines = w.affectedLines || [];
+  if (lines.some((l) => MVB.test(opName(l)))) return 'mvb';
+  const pts = places(w).map(coord).filter(Boolean);
+  if (pts.length) return pts.some(inMd) ? 'ort' : null;
+  if (lines.length && lines.some((l) => opName(l))) return null;
+  return MD_TEXT.test([w.summary, w.text, w.company].join(' ')) ? 'text' : null;
+}
 export async function remarks(env) {
   const now = Date.now();
   const r = await nv(env).remarks({ results: 300, from: now, to: now + 3 * 86400000, language: 'de' });
   const list = Array.isArray(r) ? r : r.remarks || [];
-  const near = (w) => [].concat((w.edges || []).map((e) => e.fromLocation), (w.edges || []).map((e) => e.toLocation), (w.events || []).map((e) => e.fromLocation))
-    .some((l) => l && inMd(l.location || l));
   return {
-    remarks: list.filter((w) => MDRE.test([w.summary, w.text, w.company].join(' ')) || (w.affectedLines || []).some((l) => MDRE.test((l.operator && l.operator.name) || '')) || near(w))
-      .map((w) => ({
+    remarks: list.map((w) => ({ w, why: relevant(w) })).filter((x) => x.why)
+      .map(({ w, why }) => ({
         id: w.id, summary: w.summary || '', text: w.text || '', priority: w.priority != null ? w.priority : null,
-        validFrom: w.validFrom || null, validUntil: w.validUntil || null, modified: w.modified || null,
-        lines: (w.affectedLines || []).map((l) => ({ name: l.name || '', product: l.product || '' })),
-        stops: Array.from(new Set([].concat((w.edges || []).map((e) => e.fromLocation && e.fromLocation.name), (w.events || []).map((e) => e.fromLocation && e.fromLocation.name)).filter(Boolean)))
+        validFrom: w.validFrom || null, validUntil: w.validUntil || null, modified: w.modified || null, why,
+        lines: Array.from(new Map((w.affectedLines || []).filter((l) => l.name).map((l) => [l.product + '|' + l.name, { name: l.name, product: l.product || '' }])).values()),
+        stops: Array.from(new Set(places(w).map((l) => l.name).filter(Boolean)))
       }))
       .sort((a, b) => (b.priority || 0) - (a.priority || 0))
   };
