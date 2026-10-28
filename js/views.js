@@ -581,16 +581,29 @@
       let idxs = null;
       ctx.head({ title: 'Fahrtverlauf' });
       const headHTML = (line, to, rt) => '<div class="trip-head">' + C.badges(line, rt === undefined ? {} : { rt }) + icon('arrow', 'to-ar') + '<span class="to">' + esc(to) + '</span></div>';
-      if (p.line) ctx.extra(headHTML(p.line, '…'));
+      // Züge: zwei Reiter unter dem Kopf – „Verlauf“ und „Wagenreihung“ (je halbe Breite)
+      const isTrain = (l) => !!l && (l.mode === 'fern' || l.mode === 'regio' || l.mode === 'sbahn');
+      st.tab = st.tab || 'verlauf';
+      const tabsHTML = (l) => (isTrain(l) ? '<div class="trip-tabs" role="tablist">' +
+        [['verlauf', 'Verlauf'], ['wr', 'Wagenreihung']].map(([k, label]) => '<button role="tab" aria-selected="' + (st.tab === k) + '" data-tab="' + k + '"' + (st.tab === k ? ' class="on"' : '') + '>' + label + '</button>').join('') + '</div>' : '');
+      function setHead(line, to, rt) {
+        const el = ctx.extra(headHTML(line, to, rt) + tabsHTML(line));
+        el.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => {
+          if (st.tab === b.dataset.tab) return;
+          st.tab = b.dataset.tab; ctx.body.scrollTop = 0;
+          if (st.trip) draw(); else setHead(line, to, rt);
+        }));
+      }
+      if (p.line) setHead(p.line, '…');
       ctx.body.innerHTML = C.skel(7);
 
       /** Fahrt am angezeigten Ziel teilen (z. B. Linie 2 bis City Carré, Linie 1 bis City Carré); der Rest ist die
           Weiterfahrt als andere Linie. Maßgeblich ist das Ziel an der Haltestelle, nicht die letzte Haltestelle der Fahrt. */
       function cutTrip(t, hs) {
-        // 1, 2, 5, 13: Die Bahn wechselt am City Carré die Linie (1 ↔ 5, 2 ↔ 13) – auch wenn die Daten sie
-        // als eine Fahrt mit einer Nummer führen. Dort teilen, der Rest fährt als Partnerlinie.
-        const partner = M.partnerLine(t.line);
-        let h = partner ? t.stops.findIndex((s, i) => i > 0 && i < t.stops.length - 1 && M.isChangeStop(s.name)) : -1;
+        // Bekannter Linienwechsel (z. B. 1 ↔ 5 am City Carré) – auch wenn die Daten die Bahn als eine Fahrt mit einer
+        // Nummer führen. Dort teilen, der Rest fährt als Partnerlinie.
+        let h = M.changeIdx(t, 1, t.stops.length - 1);
+        const partner = h > 0 ? M.partnerLine(t.line, t.stops[h].name) : null;
         const byRule = h > 0;
         // sonst: Fahrt endet laut Anzeige an der Haltestelle früher (z. B. „Hauptbahnhof“), danach nichts zeigen
         if (!byRule) h = M.headIdx(t, hs);
@@ -658,9 +671,110 @@
         const txt = line ? 'Weiter als <span class="ref">' + C.badges(line, { sm: true }) + '</span> nach ' + dest : 'Weiter nach ' + dest;
         return '<div class="trip-gap"><div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">' + txt + '</span><span></span></div></div>';
       }
+      /* ---------- Wagenreihung (Daten der DB über den Muvit-Dienst) ---------- */
+      const AMEN = {
+        AIR_CONDITION: 'Klimaanlage', BIKE_SPACE: 'Fahrradstellplätze', BISTRO: 'Bordbistro', RESTAURANT: 'Bordrestaurant', BOARDING_AID: 'Einstiegshilfe',
+        CABIN_INFANT: 'Kleinkindabteil', INFO: 'Info-Point', SEATS_BAHN_COMFORT: 'BahnBonus Status', SEATS_SEVERELY_DISABLED: 'Plätze für Schwerbehinderte',
+        SEATS_PRIORITY: 'Vorrangplätze', WHEELCHAIR_SPACE: 'Rollstuhlplätze', TOILET_WHEELCHAIR: 'Rollstuhlgerechtes WC', ZONE_FAMILY: 'Familienbereich',
+        ZONE_QUIET: 'Ruhebereich', ZONE_SILENT: 'Ruhebereich', ZONE_MULTI_PURPOSE: 'Mehrzweckbereich', WIFI: 'WLAN', POWER_SOCKET: 'Steckdosen',
+        SEATS_LUFTHANSA_EXPRESS_RAIL: 'Lufthansa Express Rail', PLAYGROUND: 'Kinderbereich', CYCLE_RESERVATION: 'Fahrradreservierung', SLEEPER: 'Schlafwagen', COUCHETTE: 'Liegewagen'
+      };
+      const amenLabel = (a) => AMEN[a.type] || a.type.charAt(0) + a.type.slice(1).toLowerCase().replace(/_/g, ' ');
+      const WR_WHY = {
+        dienst: 'Die Wagenreihung kommt direkt von der Deutschen Bahn. Dafür muss der Muvit-Dienst eingerichtet sein (Mehr → Einstellungen → Muvit-Dienst).',
+        station: 'Der Bahnhof wurde bei der Deutschen Bahn nicht gefunden.',
+        train: 'Die Deutsche Bahn kennt diesen Zug an diesem Halt nicht.'
+      };
+      /** Halte, an denen der Zug noch abfährt */
+      function wrStops(t) {
+        const now = Date.now(), out = [];
+        t.stops.forEach((s, i) => { const d = s.dep || s.depPlanned; if (i < t.stops.length - 1 && !s.cancelled && d && +d > now - 60000) out.push(i); });
+        return out;
+      }
+      function loadWR(t, idx) {
+        const s = t.stops[idx], planned = s.depPlanned || s.dep;
+        const mine = st.wr = { idx, tripId: t.tripId, loading: true };
+        const done = (r) => { if (!ctx.alive() || st.wr !== mine) return; st.wr = Object.assign({ idx, tripId: t.tripId }, r); if (st.tab === 'wr') draw(); };
+        M.Dienst.wagenreihung(t.line, s, new Date(planned)).then(done, (e) => done({ error: e.message || 'Fehler' }));
+      }
+      function wrTrain(w, s) {
+        const vs = w.vehicles, pf = w.platform || {}, secs = pf.sectors || [];
+        // Positionen in Metern am Bahnsteig; fehlen sie, Wagen gleich lang hintereinander
+        const known = vs.every((v) => v.start != null && v.end != null && v.end > v.start);
+        if (!known) vs.forEach((v, i) => { v.start = i * 26; v.end = i * 26 + 25; });
+        let p0 = Math.min.apply(null, vs.map((v) => v.start).concat(secs.map((x) => (x.start != null ? x.start : Infinity))));
+        let p1 = Math.max.apply(null, vs.map((v) => v.end).concat(secs.map((x) => (x.end != null ? x.end : -Infinity))));
+        if (known && pf.start != null && pf.end != null && pf.end > pf.start) { p0 = Math.min(p0, pf.start); p1 = Math.max(p1, pf.end); }
+        const span = Math.max(1, p1 - p0);
+        const minLen = Math.max(8, Math.min.apply(null, vs.map((v) => v.end - v.start)));
+        const scale = Math.max(Math.max(280, ctx.body.clientWidth - 32) / span, 34 / minLen);
+        const X = (m) => Math.round((m - p0) * scale), W = X(p1);
+        let h = '<div class="wr-scroll"><div class="wr-track" style="width:' + W + 'px">';
+        h += '<div class="wr-secs">' + secs.filter((x) => x.start != null && x.end != null).map((x) => '<span style="left:' + X(x.start) + 'px;width:' + Math.max(14, X(x.end) - X(x.start)) + 'px">' + esc(x.name) + '</span>').join('') + '</div>';
+        h += '<div class="wr-train">' + vs.map((v, i) => {
+          const cls = ['wg', v.engine ? 'eng' : '', v.first ? 'first' : '', v.closed ? 'closed' : '', v.dining ? 'din' : '',
+            v.engine && i === 0 ? 'nose-l' : '', v.engine && i === vs.length - 1 ? 'nose-r' : '', i > 0 && v.group !== vs[i - 1].group ? 'gs' : ''].filter(Boolean).join(' ');
+          const kl = v.first && v.second ? '1/2' : v.first ? '1' : v.second ? '2' : '';
+          return '<div class="' + cls + '" style="left:' + X(v.start) + 'px;width:' + Math.max(10, X(v.end) - X(v.start) - 3) + 'px" title="' + esc(v.number ? 'Wagen ' + v.number : '') + '">' +
+            (v.engine ? '' : '<b>' + esc(v.number || '') + '</b><span class="kl">' + (v.dining ? icon('dining') : kl) + '</span>') + '</div>';
+        }).join('') + '</div></div></div>';
+        return h;
+      }
+      function wrHTML(t) {
+        const cand = wrStops(t);
+        if (!cand.length) return C.empty('Keine Wagenreihung', 'Der Zug hat sein Ziel erreicht.');
+        if (!st.wr || st.wr.tripId !== t.tripId || (!st.wr.loading && !cand.includes(st.wr.idx))) {
+          const f = p.focusStop ? cand.find((i) => M.normStop(t.stops[i].name) === M.normStop(p.focusStop)) : null;
+          loadWR(t, f != null ? f : cand[0]);
+        }
+        const w = st.wr, s = t.stops[w.idx];
+        let h = '<div class="wr"><label class="wr-pick">' + icon('hOutline', 'h') + '<select data-wrstop aria-label="Halt">' +
+          cand.map((i) => '<option value="' + i + '"' + (i === w.idx ? ' selected' : '') + '>' + esc(M.localName(t.stops[i].name)) + ' · ' + M.fmtTime(t.stops[i].depPlanned || t.stops[i].dep) + '</option>').join('') + '</select>' + icon('down', 'dd') + '</label>';
+        if (w.loading) return h + C.skel(4) + '</div>';
+        if (w.error) return h + C.empty('Wagenreihung nicht verfügbar', esc(w.error)) + '</div>';
+        if (!w.available) return h + C.empty('Keine Wagenreihung', WR_WHY[w.reason] || 'Für diesen Zug liegt an diesem Halt keine Wagenreihung vor. Regionalzüge und Züge anderer Betreiber haben sie oft nicht.') + '</div>';
+        const gl = (w.platform && w.platform.name) || w.platformRt || s.platform || '';
+        const plan = w.plannedPlatform || w.platformPlan || '';
+        const dir = w.direction ? '<span class="wr-dir">Fahrtrichtung' + icon('arrow', w.direction === 'left' ? 'l' : '') + '</span>' : '';
+        h += '<div class="wr-top"><span class="wr-gl">' + (gl ? 'Gl. ' + esc(gl) : 'Gleis') + (plan && gl && plan !== gl ? ' <s class="c-red">' + esc(plan) + '</s>' : '') + '</span>' + dir + '</div>';
+        h += wrTrain(w, s);
+        h += '<div class="wr-legend"><span><i class="k1"></i>1. Klasse</span><span><i class="k2"></i>2. Klasse</span><span>' + icon('dining') + 'Bordrestaurant</span></div>';
+        // Zugteile (z. B. geteilter ICE mit zwei Zielen)
+        if (w.groups && w.groups.length > 1) h += '<div class="wr-groups">' + w.groups.map((g, i) => '<div><b>Zugteil ' + (i + 1) + '</b> ' + esc([g.category, g.number].filter(Boolean).join(' ')) + (g.destination ? ' nach ' + esc(M.localName(g.destination)) : '') + '</div>').join('') + '</div>';
+        let n = 0;
+        h += '<div class="wr-list">' + w.vehicles.filter((v) => !v.engine).map((v) => {
+          n++;
+          const tags = [];
+          if (v.first) tags.push('<span class="k1">1. Klasse</span>');
+          if (v.second) tags.push('<span>2. Klasse</span>');
+          if (v.dining && !v.amenities.some((a) => a.type === 'BISTRO' || a.type === 'RESTAURANT')) tags.push('<span>' + (/BISTRO/.test(v.category) ? 'Bordbistro' : 'Bordrestaurant') + '</span>');
+          if (v.doubleDeck) tags.push('<span>Doppelstockwagen</span>');
+          if (v.closed) tags.push('<span class="no">Geschlossen</span>');
+          v.amenities.forEach((a) => { const bad = /NOT_AVAILABLE|DEFECT|CLOSED/i.test(a.status || ''); tags.push('<span' + (bad ? ' class="no"' : '') + '>' + esc(amenLabel(a)) + (a.amount ? ' (' + a.amount + ')' : '') + (bad ? ' – gestört' : '') + '</span>'); });
+          return '<div class="wr-row"><span class="wr-no' + (v.first ? ' first' : '') + '">' + esc(v.number || String(n)) + '</span><div style="min-width:0"><div class="t">' + (v.number ? 'Wagen ' + esc(v.number) : n + '. Wagen') +
+            (v.sector ? ' <span class="c-gray">· Abschnitt ' + esc(v.sector) + '</span>' : '') + '</div><div class="wr-tags">' + tags.join('') + '</div></div></div>';
+        }).join('') + '</div>';
+        h += '<div class="trip-foot">' + icon('live') + 'Wagenreihung: Deutsche Bahn · ' + esc(w.train || t.line.full || t.line.name) + '</div>';
+        return h + '</div>';
+      }
+      function drawWR(t) {
+        const keep = ctx.body.scrollTop;
+        const sc = ctx.body.querySelector('.wr-scroll'), keepX = sc ? sc.scrollLeft : 0;
+        ctx.body.innerHTML = wrHTML(t);
+        ctx.body.scrollTop = keep;
+        const sc2 = ctx.body.querySelector('.wr-scroll'); if (sc2) sc2.scrollLeft = keepX;
+        const sel = ctx.body.querySelector('[data-wrstop]');
+        if (sel) sel.addEventListener('change', () => { loadWR(t, +sel.value); draw(); });
+      }
       function draw() {
         const t = st.trip, now = Date.now();
-        ctx.extra(headHTML(t.line, t.headsign, !!t.realtime));
+        setHead(t.line, t.headsign, !!t.realtime);
+        if (st.tab === 'wr' && isTrain(t.line)) {
+          st.parts = [t];
+          st.keys = [(() => { const rp = progOf(t, 0, now); return rp.state + rp.idx; })()];
+          drawWR(t); placeVehicle();
+          return;
+        }
         const main = partHTML(t, 0, now);
         const at = t.stops[Math.min(main.next, t.stops.length - 1)];
         // Linienwechsel steht als eigener Abschnitt darunter – Texthinweise dazu nicht doppelt zeigen
@@ -702,8 +816,8 @@
         if (!raw || st.nextTried === key) return;
         st.nextTried = key;
         // schon geteilt (Bahn fährt über City Carré hinaus) oder keine Wechsel-Linie: nichts nachzuladen
-        if (st.rest || !M.partnerLine(raw.line) || !M.isChangeStop(raw.stops[raw.stops.length - 1].name)) return;
-        // Fahrt endet am City Carré: Folgefahrt im Umlauf (Daten) bzw. die dort beginnende Fahrt der Partnerlinie
+        if (st.rest || !M.partnerLine(raw.line, raw.stops[raw.stops.length - 1].name)) return;
+        // Fahrt endet am Wechselhalt: Folgefahrt im Umlauf (Daten) bzw. die dort beginnende Fahrt der Partnerlinie
         if (raw.next && raw.next.stops && raw.next.stops.length && raw.continues) { st.next = raw.next; st.nextInfo = raw.continues; st.nextFor = key; draw(); return; }
         const c = await M.Transit.continuation({ tripId: raw.tripId, src: raw.src, line: raw.line, headsign: st.hs || raw.headsign });
         if (!ctx.alive() || !st.raw || st.raw.tripId !== raw.tripId) return;
@@ -712,7 +826,7 @@
           const t2 = await M.Transit.trip(c.tripId, c.src || 'motis').catch(() => null);
           if (!t2 || !ctx.alive()) return;
           // nur ab dem Umstiegshalt (falls die Fahrt der neuen Linie früher beginnt)
-          const k = t2.stops.findIndex((x) => M.isChangeStop(x.name));
+          const k = t2.stops.findIndex((x) => M.isChangeStop(x.name, t2.line));
           if (k < 0 || k >= t2.stops.length - 1 || !st.raw || st.raw.tripId !== raw.tripId || st.rest) return;
           st.next = Object.assign({}, t2, { stops: t2.stops.slice(k) });
           st.nextInfo = c; st.nextFor = key;
@@ -892,12 +1006,21 @@
         M.$('[data-more]', ctx.body).innerHTML = all.length ? '<button class="more" data-later>Spätere Abfahrten</button>' : '';
         bindAll(ctx.body, '[data-later]', loadMore);
       }
+      /** Echtzeit, Gleise, Ausfälle und Hinweise der DB bzw. MVB (Muvit-Dienst) ergänzen, dann neu zeichnen */
+      const byTime = (a, b) => (a.time || 0) - (b.time || 0);
+      function enrich(at, list) {
+        M.Dienst.enrich(at, list).then((changed) => {
+          if (!changed || !ctx.alive() || !st.list) return;
+          st.list.sort(byTime); draw();
+        }).catch(() => {});
+      }
       async function load() {
         try {
           const r = await M.Transit.departures(stop, { n: 50 });
           if (!ctx.alive()) return;
-          st.list = r.list; st.alerts = r.alerts; st.updated = new Date();
+          st.list = M.Dienst.applyKnown(r.list).sort(byTime); st.alerts = r.alerts; st.updated = new Date();
           draw();
+          enrich(r.stop || stop, st.list);
         } catch (e) { if (ctx.alive() && !st.list) { listBox.innerHTML = ''; listBox.appendChild(C.error(e, load)); } }
       }
       async function loadMore() {
@@ -906,8 +1029,10 @@
           const r = await M.Transit.departures(stop, { n: 40, time: new Date(last.time.getTime() + 60000) });
           if (!ctx.alive()) return;
           const seen = new Set(st.list.map((x) => x.tripId + x.planned));
-          st.list = st.list.concat(r.list.filter((x) => !seen.has(x.tripId + x.planned)));
+          const add = M.Dienst.applyKnown(r.list.filter((x) => !seen.has(x.tripId + x.planned)));
+          st.list = st.list.concat(add);
           draw();
+          enrich(r.stop || stop, add);
         } catch (e) { M.toast(e.message, { type: 'err' }); }
       }
       bindAll(ctx.body, '[data-reload]', () => { load(); M.toast('Abfahrten aktualisiert'); });
@@ -1036,7 +1161,7 @@
       const st = ctx.state;
       ctx.head({ title: 'Verkehrsmelder', actions: [{ icon: 'refresh', label: 'Aktualisieren', onClick: () => { st.items = null; load(); } }] });
       ctx.body.innerHTML = '<div class="day" style="border-top:0"><span>Aktuelle Meldungen der MVB</span><span class="upd" data-upd></span></div><div data-list>' + C.skel(5) + '</div>' +
-        '<div class="hint" style="padding-top:18px">' + icon('infoFill') + '<span>Die Meldungen stammen aus den Echtzeitdaten der MVB (Straßenbahn und Bus in Magdeburg). Muvit fragt dafür die wichtigsten Haltestellen im ganzen Stadtgebiet ab.</span></div>' +
+        '<div class="hint" style="padding-top:18px">' + icon('infoFill') + '<span data-src>Die Meldungen stammen von der MVB (Störungsmeldungen über INSA, Nahverkehrsservice Sachsen-Anhalt), von der Deutschen Bahn und aus den Echtzeitdaten der Haltestellen im ganzen Stadtgebiet.</span></div>' +
         '<div class="btn-row" style="padding-top:6px"><a class="btn-o" href="https://www.mvbnet.de/" target="_blank" rel="noopener">' + icon('external') + 'Alle Meldungen auf mvbnet.de</a></div>';
       const box = M.$('[data-list]', ctx.body);
       const isMvb = (l) => !l || /MVB|Magdeburger Verkehrsbetriebe/i.test(l.agency || '') || (!l.agency && (l.mode === 'tram' || l.mode === 'bus'));
@@ -1044,7 +1169,9 @@
         const ls = a.lines.filter((l) => isMvb(l) === a.mvb);
         return '<div class="dep-item"><button class="alert-line" style="padding-top:14px" data-i="' + i + '">' + icon('warnFill', 'w') +
           '<span class="tx"><b>' + C.richText(a.title) + '</b>' + (ls.length ? '<span style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' + C.lineGroups(ls) + '</span>' : '') +
-          '<span class="c-gray" style="display:block;margin-top:6px;font-size:14px">' + esc(a.stops.slice(0, 3).join(', ')) + (a.stops.length > 3 ? ' u. a.' : '') + '</span></span><span class="chev">' + icon('down') + '</span></button></div>';
+          '<span class="c-gray" style="display:block;margin-top:6px;font-size:14px">' + esc(a.stops.slice(0, 3).join(', ')) + (a.stops.length > 3 ? ' u. a.' : '') + '</span>' +
+          (a.until || a.from ? '<span class="c-gray" style="display:block;margin-top:4px;font-size:13px">' + (a.from && a.from > Date.now() ? 'ab ' + esc(M.fmtDayTime(a.from)) + ' ' : '') + (a.until ? 'bis ' + esc(M.fmtDayTime(a.until)) : '') + '</span>' : '') +
+          '</span><span class="chev">' + icon('down') + '</span></button></div>';
       }
       function draw() {
         const items = st.items || [];
@@ -1073,6 +1200,21 @@
           if (line && isMvb(line)) it.mvb = true;
           if (!it.stops.includes(s.name)) it.stops.push(s.name);
         };
+        const publish = () => { if (!ctx.alive()) return; st.items = Array.from(map.values()).sort((a, b) => (b.src === 'insa') - (a.src === 'insa') || b.lines.length - a.lines.length); draw(); };
+        // 1) Störungsmeldungen der MVB (INSA) über den Muvit-Dienst
+        const insa = M.Dienst.remarks().then((list) => {
+          list.forEach((w) => { if (!map.has(w.title)) map.set(w.title, Object.assign({}, w, { lines: w.lines.slice(), stops: w.stops.slice() })); });
+          publish();
+        }).catch(() => {});
+        // 2) Meldungen der Deutschen Bahn an den zentralen Haltestellen (auch für Straßenbahn und Bus)
+        const CENTRAL = [
+          { name: 'Hauptbahnhof', lat: 52.1303, lon: 11.6275 }, { name: 'City Carré', lat: 52.1313, lon: 11.6319 },
+          { name: 'Alter Markt', lat: 52.1317, lon: 11.6388 }, { name: 'Hasselbachplatz', lat: 52.1222, lon: 11.6353 }
+        ];
+        const db = Promise.all(CENTRAL.map((s) => M.Transit.DB.departures(Object.assign({ type: 'coord', src: 'db' }, s), { n: 60 }).then((r) => {
+          r.list.forEach((x) => (x.alerts || []).forEach((a) => add(a, x.line, s)));
+          publish();
+        }).catch(() => {})));
         try {
           const c = M.CONFIG.center;
           const { list } = await M.Transit.cityStops(c.lat, c.lon);
@@ -1086,16 +1228,19 @@
                 r.list.forEach((x) => (x.alerts || []).forEach((a) => add(a, x.line, s)));
               } catch (e) { /* Haltestelle überspringen */ }
               if (!ctx.alive()) return;
-              st.items = Array.from(map.values()).sort((a, b) => b.lines.length - a.lines.length);
-              draw();
+              publish();
             }
           };
-          await Promise.all([worker(), worker(), worker()]);
+          await Promise.all([worker(), worker(), worker(), insa, db]);
           if (!ctx.alive()) return;
           st.loading = false; st.updated = new Date();
-          st.items = Array.from(map.values()).sort((a, b) => b.lines.length - a.lines.length);
-          draw();
-        } catch (e) { st.loading = false; if (ctx.alive()) { box.innerHTML = ''; box.appendChild(C.error(e, load)); } }
+          publish();
+        } catch (e) {
+          await Promise.all([insa, db]);
+          st.loading = false;
+          if (!ctx.alive()) return;
+          if (map.size) { st.updated = new Date(); publish(); } else { box.innerHTML = ''; box.appendChild(C.error(e, load)); }
+        }
       }
       if (st.items && !st.loading && ctx.restoring) draw(); else load();
     }
@@ -1247,7 +1392,7 @@
       const seg = (key, opts) => '<div class="seg" data-seg="' + key + '">' + opts.map((o) => '<button data-v="' + o[0] + '" class="' + (String(s[key]) === String(o[0]) ? 'on' : '') + '">' + o[1] + '</button>').join('') + '</div>';
       const sw = (id, on) => '<label class="sw"><input type="checkbox" data-sw="' + id + '"' + (on ? ' checked' : '') + '><span></span></label>';
       const notifState = () => (!('Notification' in window) ? 'In diesem Browser nicht verfügbar (iPhone: Muvit zum Home-Bildschirm hinzufügen)'
-        : Notification.permission === 'granted' ? 'Erlaubt' + (M.Watch && M.Watch.pushReady() ? ' – auch bei geschlossener App' : ' – nur solange Muvit geöffnet ist (Push-Dienst nicht eingerichtet)')
+        : Notification.permission === 'granted' ? 'Erlaubt' + (M.Watch && M.Watch.pushReady() ? ' – auch bei geschlossener App' : ' – nur solange Muvit geöffnet ist (Muvit-Dienst ohne Push)')
         : Notification.permission === 'denied' ? 'Blockiert – in den Browser-Einstellungen freigeben' : 'Noch nicht erlaubt');
       ctx.body.innerHTML =
         '<div class="lbl" style="padding-top:6px">Assistance (Muvit KI)</div>' +
@@ -1261,12 +1406,22 @@
         '<div class="kv"><div class="k">Haltestellen („H“)</div>' + sw('stops', s.showStops !== false) + '</div>' +
         '<div class="kv"><div class="k">Dunkle Karte</div>' + sw('dark', !!s.mapDark) + '</div>' +
         '<div class="kv"><div class="k">Mitteilungen<small data-npst>' + notifState() + '</small></div><button class="btn-o" data-notif style="height:36px">' + icon('bell') + 'Erlauben</button></div>' +
+        '<div class="lbl">Muvit-Dienst</div>' +
+        '<div class="hint" style="padding-bottom:12px">' + icon('infoFill') + '<span>Echte Daten der Deutschen Bahn (Gleise, Wagenreihung, Meldungen) und der MVB (Straßenbahn und Bus in Echtzeit, Störungen) sowie Mitteilungen bei geschlossener App. Einrichtung: <a href="https://github.com/Loris6/Muvit/blob/main/service/README.md" target="_blank" rel="noopener">Anleitung</a>.</span></div>' +
+        '<div class="kv"><div class="k">Zustand<small data-dst>Wird geprüft …</small></div><button class="btn-o" data-dcheck style="height:36px">' + icon('refresh') + 'Prüfen</button></div>' +
+        '<label class="field"><span>Adresse (leer = aus config.json)</span><input class="inp" type="url" inputmode="url" data-durl placeholder="' + esc(M.Dienst.base || 'https://muvit-dienst.<name>.workers.dev') + '" value="' + esc(s.serviceUrl || '') + '" autocomplete="off" spellcheck="false"></label>' +
+        '<div class="lbl">Linienwechsel</div>' +
+        '<div class="hint" style="padding-bottom:10px">' + icon('infoFill') + '<span>Muvit erkennt Linienwechsel selbst: aus den Hinweisen der MVB („weiter als Linie …“) und aus den Echtzeitdaten, wenn dieselbe Bahn als alte und neue Linie auftaucht. Erkannte Wechsel gelten 14 Tage. Hier kannst du Wechsel abschalten oder eigene eintragen.</span></div>' +
+        '<div data-lc></div>' +
+        '<div class="lc-add"><input class="inp" data-lca placeholder="Linie" maxlength="4" inputmode="text" aria-label="Linie"><span class="lc-x">↔</span><input class="inp" data-lcb placeholder="Linie" maxlength="4" aria-label="Partnerlinie">' +
+        '<input class="inp lc-at" data-lcat placeholder="Haltestelle, z. B. City Carré" aria-label="Haltestelle"><select class="inp" data-lcm aria-label="Verkehrsmittel"><option value="tram">Tram</option><option value="bus">Bus</option></select>' +
+        '<button class="btn-o" data-lcadd>' + icon('plus') + 'Hinzufügen</button></div>' +
         '<div class="lbl">Fahrplandaten</div>' + seg('provider', [['motis', 'Transitous (Echtzeit)'], ['db', 'Deutsche Bahn']]) +
         '<div class="lbl" style="padding-top:4px">Umkreis „In der Nähe“</div>' + seg('radius', [[500, '500 m'], [900, '900 m'], [1500, '1,5 km']]) +
         '<div class="lbl">Privatsphäre</div>' +
         '<div class="kv"><div class="k">Verlauf löschen<small>Gesuchte Orte, Routen und Haltestellen</small></div><button class="btn-o" data-wipe>Löschen</button></div>' +
         '<div class="kv"><div class="k">Favoriten löschen<small>Gemerkte Haltestellen und Routen</small></div><button class="btn-o" data-wipefav>Löschen</button></div>' +
-        '<div class="lbl">Über Muvit</div><div class="hint">' + icon('infoFill') + '<span>Fahrplan & Echtzeit: <a href="https://transitous.org" target="_blank" rel="noopener">Transitous</a> und <a href="https://v6.db.transport.rest" target="_blank" rel="noopener">db.transport.rest</a>. Karte: © OpenStreetMap-Mitwirkende, OpenFreeMap, MapLibre. Icons: <a href="https://www.flaticon.com/uicons" target="_blank" rel="noopener">Uicons by Flaticon</a>. Code-Leser: <a href="https://github.com/zxing-js/library" target="_blank" rel="noopener">ZXing for JS</a> (Apache-2.0). Tarife ohne Gewähr.</span></div>';
+        '<div class="lbl">Über Muvit</div><div class="hint">' + icon('infoFill') + '<span>Fahrplan & Echtzeit: <a href="https://transitous.org" target="_blank" rel="noopener">Transitous</a>, <a href="https://v6.db.transport.rest" target="_blank" rel="noopener">db.transport.rest</a>, Deutsche Bahn (bahn.de) und INSA (Nahverkehrsservice Sachsen-Anhalt) über den Muvit-Dienst. Linienfarben der Züge: DB UX Design System (Apache-2.0). Karte: © OpenStreetMap-Mitwirkende, OpenFreeMap, MapLibre. Icons: <a href="https://www.flaticon.com/uicons" target="_blank" rel="noopener">Uicons by Flaticon</a>. Code-Leser: <a href="https://github.com/zxing-js/library" target="_blank" rel="noopener">ZXing for JS</a> (Apache-2.0). Tarife ohne Gewähr.</span></div>';
       ctx.body.querySelectorAll('[data-seg]').forEach((g) => g.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
         const key = g.dataset.seg; let v = b.dataset.v; if (key === 'radius') v = +v;
         M.saveSettings({ [key]: v });
@@ -1293,6 +1448,48 @@
         if (!('Notification' in window)) { M.toast('Mitteilungen sind hier nicht verfügbar. Auf dem iPhone Muvit zuerst zum Home-Bildschirm hinzufügen.', { type: 'err', ms: 6000 }); return; }
         try { await Notification.requestPermission(); } catch (e) { /* ignore */ }
         const el = M.$('[data-npst]', ctx.body); if (el) el.textContent = notifState();
+      });
+      /* Muvit-Dienst */
+      const dst = () => {
+        const el = M.$('[data-dst]', ctx.body); if (!el) return;
+        const h = M.Dienst.health;
+        el.textContent = !M.Dienst.url() ? 'Nicht eingerichtet – Muvit nutzt Transitous'
+          : h === null ? 'Wird geprüft …'
+          : !h ? 'Nicht erreichbar (' + M.Dienst.url().replace(/^https?:\/\//, '') + ')'
+          : 'Verbunden: Züge (DB), Straßenbahn & Bus (MVB)' + (h.push ? ', Push' : ' – Push noch nicht eingerichtet');
+      };
+      M.Dienst.ready().then(() => { if (ctx.alive()) dst(); });
+      const durl = M.$('[data-durl]', ctx.body);
+      durl.addEventListener('change', () => {
+        const v = durl.value.trim();
+        if (v && !/^https:\/\/[^\s/]+/.test(v) && !/^http:\/\/(localhost|127\.0\.0\.1)/.test(v)) { M.toast('Bitte eine https-Adresse eingeben', { type: 'err' }); return; }
+        M.saveSettings({ serviceUrl: v.replace(/\/+$/, '') });
+        dst(); M.Dienst.reset().then(() => { if (ctx.alive()) dst(); });
+      });
+      bindAll(ctx.body, '[data-dcheck]', () => { M.Dienst.health = null; dst(); M.Dienst.reset().then((ok) => { if (!ctx.alive()) return; dst(); M.toast(ok ? 'Muvit-Dienst ist erreichbar' : 'Muvit-Dienst nicht erreichbar', { type: ok ? 'ok' : 'err' }); }); });
+      /* Linienwechsel */
+      const SRC = { own: 'Eigener Eintrag', insa: 'Hinweis der MVB', data: 'Aus Echtzeitdaten erkannt', default: 'Vorgabe' };
+      function drawLc() {
+        const box = M.$('[data-lc]', ctx.body); if (!box) return;
+        const list = M.LineChanges.all();
+        box.innerHTML = list.length ? list.map((r, i) => {
+          const la = M.mkLine(r.a, r.mode), lb = M.mkLine(r.b, r.mode);
+          const when = r.seen ? ' · zuletzt ' + M.fmtDayTime(new Date(r.seen)) : '';
+          return '<div class="kv lc' + (r.off || r.replaced ? ' off' : '') + '"><div class="k"><span class="lc-l">' + C.badges(la, { sm: true }) + '<span class="lc-x">↔</span>' + C.lineBadge(lb, { sm: true }) + '<span class="lc-at">' + esc(r.at) + '</span></span>' +
+            '<small>' + esc(SRC[r.src] || '') + esc(when) + (r.replaced ? ' · ersetzt durch ' + esc(r.replaced) : '') + '</small></div><div class="lc-act">' +
+            (r.src !== 'default' ? '<button class="act" data-lcdel="' + i + '" aria-label="Entfernen" title="Entfernen">' + icon('trash') + '</button>' : '') +
+            '<label class="sw"><input type="checkbox" data-lcon="' + i + '"' + (r.off ? '' : ' checked') + '><span></span></label></div></div>';
+        }).join('') : '<div class="hint">' + icon('infoFill') + '<span>Noch keine Linienwechsel bekannt.</span></div>';
+        box.querySelectorAll('[data-lcon]').forEach((inp) => inp.addEventListener('change', () => { M.LineChanges.setOn(list[+inp.dataset.lcon].id, inp.checked); drawLc(); }));
+        box.querySelectorAll('[data-lcdel]').forEach((b) => b.addEventListener('click', () => { M.LineChanges.remove(list[+b.dataset.lcdel].id); drawLc(); M.toast('Linienwechsel entfernt'); }));
+      }
+      drawLc();
+      ctx.on('linechanges', drawLc);
+      bindAll(ctx.body, '[data-lcadd]', () => {
+        const a = M.$('[data-lca]', ctx.body), b = M.$('[data-lcb]', ctx.body), at = M.$('[data-lcat]', ctx.body), m = M.$('[data-lcm]', ctx.body);
+        if (!M.LineChanges.add(a.value, b.value, at.value, m.value)) { M.toast('Bitte zwei verschiedene Linien und die Haltestelle angeben', { type: 'err' }); return; }
+        a.value = b.value = at.value = '';
+        drawLc(); M.toast('Linienwechsel gespeichert', { type: 'ok' });
       });
       bindAll(ctx.body, '[data-wipe]', () => { ['recentPlaces', 'recentRoutes', 'recentStops', 'stopLines'].forEach((k) => M.store.del(k)); M.toast('Verlauf gelöscht'); });
       bindAll(ctx.body, '[data-wipefav]', () => { ['favStops', 'favRoutes'].forEach((k) => M.store.del(k)); M.toast('Favoriten gelöscht'); });

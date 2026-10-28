@@ -31,31 +31,47 @@ In der Verbindung startet „Überwachen“ die Überwachung. Muvit prüft dann 
 
 Auf dem iPhone gibt es Mitteilungen nur, wenn Muvit auf dem Home-Bildschirm liegt (ab iOS 16.4).
 
-Ohne weitere Einrichtung prüft Muvit nur, solange die App geöffnet ist. Für Mitteilungen bei **geschlossener App** liegt im Ordner [`push/`](push/README.md) ein kleiner Push-Dienst als kostenloser Cloudflare Worker bereit. Er prüft jede Minute und meldet:
+Ohne weitere Einrichtung prüft Muvit nur, solange die App geöffnet ist. Mitteilungen bei **geschlossener App** kommen vom **Muvit-Dienst** (siehe unten). Er prüft jede Minute und meldet:
 - verpasste Anschlüsse mit der schnellsten Alternative
 - Ausfälle
 - Verspätungen ab 5 Minuten
 
-Nach der einmaligen Einrichtung reicht es, in `js/core.js` die Adresse und den öffentlichen Schlüssel einzutragen.
+### Muvit-Dienst: echte DB- und MVB-Daten, Wagenreihung, Push
+
+Die Server der Deutschen Bahn und von INSA (dorthin liefert die MVB ihre Echtzeit) lassen keine Abfragen direkt aus dem Browser zu. Das übernimmt ein kleiner Cloudflare Worker im Ordner [`service/`](service/README.md). Der kostenlose Tarif reicht.
+
+- **Züge:** Abfahrten mit Gleis, Verspätung und Meldungen der DB, z. B. „Verspätung aus vorheriger Fahrt“ (mit Warndreieck in der Abfahrtsliste).
+- **Wagenreihung:** Im Fahrtverlauf eines Zuges gibt es zwei Reiter, „Verlauf“ und „Wagenreihung“. Die Wagenreihung zeigt Gleis, Abschnitte (A–G), Fahrtrichtung, die Wagen mit Nummer und Klasse sowie je Wagen die Ausstattung (z. B. „Wagen 11: 1. Klasse, BahnBonus Status, Klimaanlage“).
+- **Straßenbahn und Bus:** MVB-Echtzeit über INSA mit Ausfällen und Hinweisen.
+- **Störungsmelder:** aktuelle Störungsmeldungen der MVB, dazu Meldungen der DB und aus den Echtzeitdaten.
+- **Push:** Mitteilungen bei geschlossener App.
+
+Einrichtung: zwei Secrets im GitHub-Repository anlegen (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`) und die Action **„Muvit-Dienst bereitstellen“** starten. Sie richtet alles ein und trägt die Adresse in `config.json` ein. Details stehen in [`service/README.md`](service/README.md). Ohne Dienst nutzt Muvit weiter Transitous.
+
+Die Linienfarben der Züge sind die Produktfarben der Deutschen Bahn (DB UX Design System): ICE `#282D37`, IC/EC `#646973`, RE/RB `#878C96`, S-Bahn `#408335`, U-Bahn `#1455C0`.
 
 ### Durchläufer („Weiter als …“)
 
-Die MVB hat genau zwei Linienwechsel, beide am **City Carré** und in beide Richtungen (`CONFIG.lineChanges` in `js/core.js`):
+Die MVB ändert ihre Linienwechsel immer wieder (Baustellen, neue Liniennetze). Muvit lernt sie deshalb selbst (`M.LineChanges` in `js/core.js`):
 
-- **1 ↔ 5**: Die 1 aus Sudenburg fährt ab City Carré als 5 nach Klinikum Olvenstedt weiter – und umgekehrt.
-- **2 ↔ 13**: Die 2 aus Westerhüsen fährt ab City Carré als 13 nach Sudenburg weiter – und umgekehrt.
+- **Hinweise der MVB** über den Muvit-Dienst, z. B. „ab City Carré weiter als Linie 5“. Sie gelten sofort.
+- **Echtzeitdaten:** Steht dieselbe Bahn gleichzeitig als alte und neue Linie in der Abfahrtstafel, ist das ein Linienwechsel am angezeigten Ziel der alten Linie. Er gilt, sobald zwei verschiedene Fahrten ihn zeigen.
+- **Vorgaben** in `CONFIG.lineChanges` (zurzeit 1 ↔ 5 und 2 ↔ 13 am City Carré). Eine Vorgabe tritt zurück, sobald für eine ihrer Linien am selben Halt ein erkannter Wechsel gilt.
+
+Erkannte Wechsel gelten 14 Tage ab dem letzten Nachweis. Unter **Mehr → Einstellungen → Linienwechsel** lassen sich alle Wechsel abschalten und eigene eintragen.
 
 So zeigt Muvit das:
 
-- Führen die Daten die Fahrt über City Carré hinaus (eine Nummer für beide Abschnitte), endet der Verlauf am City Carré und darunter steht „Weiter als [Tram][5] nach …“ mit den restlichen Halten.
-- Endet die Fahrt am City Carré, sucht Muvit die dort beginnende Fahrt der Partnerlinie (alle Bahnsteige, bis 25 Minuten später). Ohne solche Fahrt (z. B. Fahrt ins Depot) erscheint kein Wechsel.
+- Führen die Daten die Fahrt über den Wechselhalt hinaus (eine Nummer für beide Abschnitte), endet der Verlauf dort und darunter steht „Weiter als [Tram][5] nach …“ mit den restlichen Halten.
+- Endet die Fahrt am Wechselhalt, sucht Muvit die dort beginnende Fahrt der Partnerlinie (alle Bahnsteige, bis 25 Minuten später). Ohne solche Fahrt (z. B. Fahrt ins Depot) erscheint kein Wechsel.
 - „Nach …“ ist immer die Endhaltestelle der Weiterfahrt.
-- Andere Linienwechsel gibt es nicht – Muvit zeigt auch keine Hinweise darauf, selbst wenn Daten sie nahelegen.
+- Hinweise auf andere Linienwechsel zeigt Muvit nicht.
 
 ## Datenquellen (echte APIs)
 
 - **[Transitous](https://transitous.org)** (MOTIS 2, `api.transitous.org`): Fahrplan und Echtzeit für ganz Europa, darunter die MVB-Straßenbahnen und -Busse in Magdeburg (DELFI) sowie Regional- und Fernverkehr. Muvit nutzt `geocode`, `plan`, `stoptimes`, `trip`, `map/stops` und `map/trips` (Live-Fahrzeuge).
 - **[db.transport.rest](https://v6.db.transport.rest)** (Deutsche Bahn): automatischer Fallback und Quelle für DB-Ticketpreise. In den Einstellungen lässt sich die DB auch als primäre Quelle wählen.
+- **Muvit-Dienst** (`service/`, optional): bahn.de über [db-vendo-client](https://github.com/public-transport/db-vendo-client) (Abfahrten, Meldungen, Wagenreihung) und INSA über [hafas-client](https://github.com/public-transport/hafas-client) (MVB-Echtzeit, Störungsmeldungen).
 - **Karte:** © [OpenStreetMap](https://www.openstreetmap.org/copyright)-Mitwirkende, Vektor-Kacheln von [OpenFreeMap](https://openfreemap.org), CARTO-Raster als Fallback.
 - **Code-Leser:** [ZXing for JS](https://github.com/zxing-js/library) (Apache-2.0), wird nur auf der D-Ticket-Seite geladen.
 - **Icons:** [Uicons by Flaticon](https://www.flaticon.com/uicons) (Regular, Bold und Solid Rounded aus `@flaticon/flaticon-uicons` 3.3.1). Die Glyphen sind als SVG-Pfade in `js/icons.js` eingebettet. Die Flaticon-Lizenz verlangt eine Namensnennung, sie steht in den Einstellungen unter „Über Muvit“.

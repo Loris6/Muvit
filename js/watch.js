@@ -51,23 +51,31 @@
     M.emit('watch');
   };
 
-  /* ---------- Mitteilungen bei geschlossener App (Web Push über den Muvit-Push-Dienst) ---------- */
-  W.pushReady = () => !!(M.CONFIG.push && M.CONFIG.push.server && M.CONFIG.push.vapidPublic && 'serviceWorker' in navigator && 'PushManager' in window);
+  /* ---------- Mitteilungen bei geschlossener App (Web Push über den Muvit-Dienst) ---------- */
+  W.pushReady = () => !!(M.Dienst && M.Dienst.url() && M.Dienst.health && M.Dienst.health.push && 'serviceWorker' in navigator && 'PushManager' in window);
   function keyBytes(b64) {
     const s = b64.replace(/-/g, '+').replace(/_/g, '/'), bin = atob(s + '==='.slice((s.length + 3) % 4));
     return Uint8Array.from(bin, (c) => c.charCodeAt(0));
   }
   async function pushStart(d) {
+    await M.Dienst.ready();
     if (!W.pushReady() || !('Notification' in window) || Notification.permission !== 'granted') return false;
     try {
+      const { publicKey } = await M.Dienst.get('/vapid');
+      if (!publicKey) throw new Error('Push-Schlüssel fehlt');
       const reg = await navigator.serviceWorker.ready;
       let sub = await reg.pushManager.getSubscription();
-      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(M.CONFIG.push.vapidPublic) });
-      const res = await fetch(M.CONFIG.push.server.replace(/\/$/, '') + '/watch', {
+      // anderer Schlüssel (Dienst neu eingerichtet): neu anmelden
+      if (sub && sub.options && sub.options.applicationServerKey) {
+        const have = new Uint8Array(sub.options.applicationServerKey), want = keyBytes(publicKey);
+        if (have.length !== want.length || have.some((b, i) => b !== want[i])) { await sub.unsubscribe().catch(() => {}); sub = null; }
+      }
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) });
+      const res = await fetch(M.Dienst.url() + '/watch', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ subscription: sub.toJSON(), journey: d })
       });
-      if (!res.ok) throw new Error('Push-Dienst ' + res.status);
+      if (!res.ok) throw new Error('Muvit-Dienst ' + res.status);
       d.pushId = (await res.json()).id; save();
       return true;
     } catch (e) {
@@ -77,7 +85,7 @@
   }
   function pushStop(id) {
     if (!W.pushReady()) return;
-    fetch(M.CONFIG.push.server.replace(/\/$/, '') + '/watch/' + id, { method: 'DELETE' }).catch(() => {});
+    fetch(M.Dienst.url() + '/watch/' + id, { method: 'DELETE' }).catch(() => {});
   }
 
   /** Echtzeit der Teilstrecken holen und Umstiege prüfen */

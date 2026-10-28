@@ -1,0 +1,135 @@
+# Muvit-Dienst bereitstellen
+# Veröffentlicht den Cloudflare Worker aus service/ (echte DB- und MVB-Daten, Wagenreihung, Push) und trägt seine
+# Adresse in config.json ein, damit die App ihn findet. Einmalig nötig: die Secrets CLOUDFLARE_API_TOKEN und
+# CLOUDFLARE_ACCOUNT_ID im Repository (Einrichtung: service/README.md). Ohne sie wird der Lauf übersprungen.
+name: Muvit-Dienst bereitstellen
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['service/**', '.github/workflows/dienst.yml']
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency:
+  group: muvit-dienst
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      KV_TITLE: muvit-dienst-WATCHES
+    defaults:
+      run:
+        working-directory: service
+    steps:
+      - name: Zugang prüfen
+        id: check
+        working-directory: .
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::Die Secrets CLOUDFLARE_API_TOKEN und CLOUDFLARE_ACCOUNT_ID fehlen – der Muvit-Dienst wird nicht bereitgestellt (siehe service/README.md)."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.ok == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.ok == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: service/package-lock.json
+
+      - name: Abhängigkeiten
+        if: steps.check.outputs.ok == 'true'
+        run: npm ci
+
+      - name: Tests
+        if: steps.check.outputs.ok == 'true'
+        run: npm test
+
+      - name: KV-Speicher für überwachte Verbindungen
+        if: steps.check.outputs.ok == 'true'
+        run: |
+          find_kv() {
+            npx wrangler kv namespace list 2>/dev/null | node -e '
+              const s = require("fs").readFileSync(0, "utf8"); const i = s.indexOf("[");
+              const l = i < 0 ? [] : JSON.parse(s.slice(i));
+              const n = l.find((x) => x.title === process.env.KV_TITLE); if (n) console.log(n.id);'
+          }
+          ID=$(find_kv)
+          if [ -z "$ID" ]; then
+            npx wrangler kv namespace create "$KV_TITLE"
+            ID=$(find_kv)
+          fi
+          if [ -z "$ID" ]; then echo "::error::KV-Speicher konnte nicht angelegt werden"; exit 1; fi
+          sed -i "s/^id = \"KV_ID\"/id = \"$ID\"/" wrangler.toml
+          grep -q "$ID" wrangler.toml
+
+      - name: Push-Schlüssel (einmalig)
+        if: steps.check.outputs.ok == 'true'
+        run: |
+          HAS=$(npx wrangler secret list --format json 2>/dev/null | node -e '
+            const s = require("fs").readFileSync(0, "utf8"); const i = s.indexOf("[");
+            let l = []; try { l = i < 0 ? [] : JSON.parse(s.slice(i)); } catch (e) {}
+            console.log(l.some((x) => x.name === "VAPID_PRIVATE") && l.some((x) => x.name === "VAPID_PUBLIC") ? "ja" : "nein");')
+          if [ "$HAS" = "nein" ]; then
+            node scripts/vapid-keys.mjs --json > "$RUNNER_TEMP/secrets.json"
+            node -e 'const o = require(process.argv[1]); console.log("::add-mask::" + o.VAPID_PRIVATE);' "$RUNNER_TEMP/secrets.json"
+            echo "SECRETS_FILE=$RUNNER_TEMP/secrets.json" >> "$GITHUB_ENV"
+            echo "Neue Push-Schlüssel werden mit dieser Bereitstellung hinterlegt."
+          else
+            echo "Push-Schlüssel sind bereits hinterlegt."
+          fi
+
+      - name: Veröffentlichen
+        if: steps.check.outputs.ok == 'true'
+        run: |
+          set -o pipefail
+          ARGS=""
+          if [ -n "$SECRETS_FILE" ]; then ARGS="--secrets-file $SECRETS_FILE"; fi
+          npx wrangler deploy $ARGS 2>&1 | tee "$RUNNER_TEMP/deploy.log"
+          rm -f "$RUNNER_TEMP/secrets.json"
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | head -1)
+          if [ -z "$URL" ]; then
+            echo "::error::Keine workers.dev-Adresse gefunden. Im Cloudflare-Dashboard unter Workers & Pages einmal eine workers.dev-Subdomain festlegen und die Action erneut starten."
+            exit 1
+          fi
+          echo "SERVICE_URL=$URL" >> "$GITHUB_ENV"
+          curl -fsS "$URL/health" && echo
+
+      - name: Adresse in config.json eintragen
+        if: steps.check.outputs.ok == 'true'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git checkout -- service/wrangler.toml
+          node -e '
+            const fs = require("fs"); let c = {};
+            try { c = JSON.parse(fs.readFileSync("config.json", "utf8")); } catch (e) {}
+            c.service = process.env.SERVICE_URL;
+            fs.writeFileSync("config.json", JSON.stringify(c, null, 2) + "\n");'
+          if git diff --quiet -- config.json && git ls-files --error-unmatch config.json >/dev/null 2>&1; then
+            echo "config.json ist aktuell."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add config.json
+          git commit -m "Muvit-Dienst: Adresse $SERVICE_URL"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          # GitHub Pages neu bauen (Pushes der Action lösen das nicht immer aus)
+          curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages/builds" >/dev/null || true

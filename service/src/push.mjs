@@ -1,10 +1,9 @@
-/* Muvit Push – Cloudflare Worker
-   Überwacht gemerkte Verbindungen jede Minute (Echtzeit von Transitous) und schickt Web-Push-Mitteilungen,
+/* Muvit-Dienst – Push: Überwacht gemerkte Verbindungen jede Minute (Echtzeit von Transitous) und schickt Web-Push-Mitteilungen,
    auch wenn Muvit auf dem Handy geschlossen ist:
    - Anschluss wird nicht erreicht (mit schnellster Alternative)
    - Fahrt fällt aus
    - erste Fahrt fährt 5 Minuten oder mehr später
-   Einrichtung: siehe README.md in diesem Ordner. */
+   Einrichtung: siehe ../README.md. */
 import { sendPush } from './webpush.mjs';
 
 const API = 'https://api.transitous.org/api';
@@ -15,12 +14,6 @@ const lineTxt = (l) => (l ? (l.mode === 'tram' ? 'Tram ' : l.mode === 'bus' ? 'B
 const ms = (v) => (v ? Date.parse(v) : null);
 const norm = (n) => String(n || '').replace(/^Magdeburg(?:\s*,\s*|\s*-\s*|\s+)/, '').replace(/\s*(?:,\s*Magdeburg|\(Magdeburg\))$/, '').replace(/^Hbf\b/, 'Hauptbahnhof').toLowerCase().replace(/[^a-z0-9äöüß]/g, '');
 
-const cors = (env) => ({
-  'Access-Control-Allow-Origin': env.ALLOW_ORIGIN || '*',
-  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Max-Age': '86400'
-});
 const json = (o, h, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json', ...h } });
 const vapid = (env) => ({ publicKey: env.VAPID_PUBLIC, privateKey: env.VAPID_PRIVATE, subject: env.VAPID_SUBJECT });
 const ttlOf = (exp) => Math.max(60, Math.ceil((exp - Date.now()) / 1000));
@@ -124,46 +117,40 @@ async function checkWatch(env, id) {
   return true;
 }
 
-export default {
-  async fetch(req, env) {
-    const h = cors(env);
-    const url = new URL(req.url);
-    if (req.method === 'OPTIONS') return new Response(null, { headers: h });
-    try {
-      if (url.pathname === '/') return json({ ok: true, service: 'muvit-push' }, h);
-      if (url.pathname === '/vapid') return json({ publicKey: env.VAPID_PUBLIC }, h);
-      if (url.pathname === '/watch' && req.method === 'POST') {
-        const b = await req.json();
-        if (!validSub(b.subscription) || !b.journey || !Array.isArray(b.journey.legs) || !b.journey.to) return json({ error: 'Ungültige Anfrage' }, h, 400);
-        const id = crypto.randomUUID();
-        const exp = Math.max(Date.now() + 5 * 60000, Number(b.journey.arr) + 30 * 60000);
-        await env.WATCHES.put('w:' + id, JSON.stringify({ sub: b.subscription, j: b.journey, notified: {}, exp }), { expirationTtl: ttlOf(exp) });
-        const ids = await getIndex(env);
-        ids.push(id);
-        await setIndex(env, ids.slice(-200));
-        await sendPush(b.subscription, { title: 'Muvit', body: 'Verbindung wird überwacht – auch wenn Muvit geschlossen ist.', tag: 'muvit-on', url: './' }, vapid(env)).catch(() => 0);
-        return json({ id }, h);
-      }
-      const m = url.pathname.match(/^\/watch\/([0-9a-f-]{36})$/);
-      if (m && req.method === 'DELETE') {
-        await env.WATCHES.delete('w:' + m[1]);
-        await setIndex(env, (await getIndex(env)).filter((x) => x !== m[1]));
-        return json({ ok: true }, h);
-      }
-      return json({ error: 'Nicht gefunden' }, h, 404);
-    } catch (e) {
-      return json({ error: String((e && e.message) || e) }, h, 500);
-    }
-  },
-
-  /** Cron: jede Minute alle überwachten Verbindungen prüfen */
-  async scheduled(event, env) {
+/** Push-Routen: GET /vapid, POST /watch, DELETE /watch/:id – null, wenn die Route nicht passt */
+export async function pushRoute(req, env, url, h) {
+  if (url.pathname === '/vapid') return json({ publicKey: env.VAPID_PUBLIC || null }, h);
+  if (url.pathname === '/watch' && req.method === 'POST') {
+    if (!env.WATCHES || !env.VAPID_PRIVATE) return json({ error: 'Push ist auf diesem Dienst nicht eingerichtet' }, h, 503);
+    const b = await req.json();
+    if (!validSub(b.subscription) || !b.journey || !Array.isArray(b.journey.legs) || !b.journey.to) return json({ error: 'Ungültige Anfrage' }, h, 400);
+    const id = crypto.randomUUID();
+    const exp = Math.max(Date.now() + 5 * 60000, Number(b.journey.arr) + 30 * 60000);
+    await env.WATCHES.put('w:' + id, JSON.stringify({ sub: b.subscription, j: b.journey, notified: {}, exp }), { expirationTtl: ttlOf(exp) });
     const ids = await getIndex(env);
-    if (!ids.length) return;
-    const alive = [];
-    for (const id of ids) if (await checkWatch(env, id).catch(() => true)) alive.push(id);
-    if (alive.length !== ids.length) await setIndex(env, alive);
+    ids.push(id);
+    await setIndex(env, ids.slice(-200));
+    await sendPush(b.subscription, { title: 'Muvit', body: 'Verbindung wird überwacht – auch wenn Muvit geschlossen ist.', tag: 'muvit-on', url: './' }, vapid(env)).catch(() => 0);
+    return json({ id }, h);
   }
-};
+  const m = url.pathname.match(/^\/watch\/([0-9a-f-]{36})$/);
+  if (m && req.method === 'DELETE') {
+    if (!env.WATCHES) return json({ ok: true }, h);
+    await env.WATCHES.delete('w:' + m[1]);
+    await setIndex(env, (await getIndex(env)).filter((x) => x !== m[1]));
+    return json({ ok: true }, h);
+  }
+  return null;
+}
+
+/** Cron: jede Minute alle überwachten Verbindungen prüfen */
+export async function pushCron(env) {
+  if (!env.WATCHES || !env.VAPID_PRIVATE) return;
+  const ids = await getIndex(env);
+  if (!ids.length) return;
+  const alive = [];
+  for (const id of ids) if (await checkWatch(env, id).catch(() => true)) alive.push(id);
+  if (alive.length !== ids.length) await setIndex(env, alive);
+}
 
 export { findProblem, tripStops, texts };

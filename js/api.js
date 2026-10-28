@@ -327,6 +327,21 @@
           importance: p.importance || 0, modes: (p.modes || []).map(modeKey), type: 'stop', src: 'motis'
         }));
       },
+      /** Bahnhöfe (Halte von S-Bahn, Regional- und Fernverkehr) in einem Gebiet. null: Der Server nennt keine
+          Verkehrsmittel je Halt – dann helfen die Linienverläufe (siehe M.Transit.stations). */
+      async railStops(b) {
+        const RAIL = ['SUBURBAN', 'REGIONAL_RAIL', 'REGIONAL_FAST_RAIL', 'RAIL', 'LONG_DISTANCE', 'HIGHSPEED_RAIL', 'NIGHT_RAIL'];
+        const box = { min: b.minLat.toFixed(5) + ',' + b.maxLon.toFixed(5), max: b.maxLat.toFixed(5) + ',' + b.minLon.toFixed(5) };
+        let res;
+        try { res = await call('railstops', ['v6', 'v1'], '/map/stops', Object.assign({ modes: RAIL }, box), { ttl: 86400000, timeout: 25000 }); }
+        catch (e) { if (e.status !== 400 && e.status !== 422) throw e; res = await call('railstops', ['v6', 'v1'], '/map/stops', box, { ttl: 86400000, timeout: 25000 }); }
+        const list = (res || []).filter((p) => p.stopId && p.lat != null);
+        if (!list.some((p) => p.modes && p.modes.length)) return null;
+        return list.filter((p) => (p.modes || []).some((m) => RAIL.includes(m))).map((p) => ({
+          id: p.stopId, parentId: p.parentId || '', name: LN(p.name), lat: p.lat, lon: p.lon,
+          importance: p.importance || 0, modes: (p.modes || []).map(modeKey), type: 'stop', src: 'motis', rail: true
+        }));
+      },
       async departures(stop, o) {
         o = o || {};
         const params = { n: o.n || 40, time: o.time || null, mode: modesOut(o.modes), language: 'de', arriveBy: o.arrivals ? true : null };
@@ -369,8 +384,9 @@
         const legs = [L];
         for (let k = mi + 1; k < all.length && L.tripId && all[k].tripId === L.tripId; k++) legs.push(all[k]);
         const nx = all[mi + legs.length] || null;
-        const pl = M.partnerLine(L.line);
-        const cont = nx && nx.line && pl && nx.line.name === pl.name && M.isChangeStop(nx.from.name) ? nx : null;
+        // Folgefahrt im Umlauf nur, wenn an diesem Halt ein Linienwechsel bekannt ist (sonst ist es kein Durchläufer)
+        const pl = nx && nx.line && M.partnerLine(L.line, nx.from.name);
+        const cont = pl && nx.line.name === pl.name ? nx : null;
         const rest = [];
         if (cont) for (let k = mi + legs.length; k < all.length && (rest.length === 0 || (cont.tripId && all[k].tripId === cont.tripId)); k++) rest.push(all[k]);
         const stopsOf = (ls) => {
@@ -702,9 +718,11 @@
         // dasselbe Fahrzeug: beide Fahrten enden am selben Halt
         if (!real.dest || !sameStop(real.dest, ghost.dest)) continue;
         drop.add(ghost);
-        // „Kommt als …“ nur, wenn der Linienwechsel an City Carré / Hbf passiert (dort, wo die alte Linie endet)
-        const pl = M.partnerLine(real.line);
-        if (!real.comes && pl && pl.name === ghost.line.name && M.isChangeStop(ghost.headsign)) real.comes = { line: ghost.line, from: ghost.origin ? ghost.origin.name : '', tripId: ghost.tripId, src: ghost.src };
+        // Linienwechsel gelernt: Das Fahrzeug fährt bis zum angezeigten Ziel der alten Linie und dann als neue Linie weiter
+        if (ghost.headsign && !sameStop({ name: ghost.headsign }, at) && !/\b(über|via)\b/i.test(ghost.headsign)) M.LineChanges.learn(ghost.line.name, real.line.name, ghost.headsign, ghost.line.mode, 'data', real.tripId || ghost.tripId);
+        // „Kommt als …“ nur, wenn der Linienwechsel dort passiert, wo die alte Linie endet
+        const pl = M.partnerLine(real.line, ghost.headsign);
+        if (!real.comes && pl && pl.name === ghost.line.name) real.comes = { line: ghost.line, from: ghost.origin ? ghost.origin.name : '', tripId: ghost.tripId, src: ghost.src };
       }
     }
     list = list.filter((x) => !drop.has(x)).sort((a, b) => (a.time || 0) - (b.time || 0));
@@ -723,22 +741,22 @@
     trip: (tripId, src) => (src === 'db' ? DB.trip(tripId) : withFallback('trip', [tripId])),
     vehicles: (b, z) => Motis.vehicles(b, z),
     stopsInBox: (a, b, c, e) => Motis.stopsInBox(a, b, c, e),
+    railStops: (b) => Motis.railStops(b),
     dbPrice: (f, t, time) => DB.price(f, t, time),
 
     /** „Fährt weiter als …“: Endet die Fahrt, prüft Muvit, ob an der Endhaltestelle kurz danach
         am selben Bahnsteig eine andere Linie desselben Verkehrsmittels beginnt (Durchläufer). */
-    /** „Weiter als …“: Nur 1 ↔ 5 und 2 ↔ 13 am City Carré (beide Richtungen).
-        - Geht die Fahrt in den Daten über City Carré hinaus, fährt dieselbe Bahn ab dort als Partnerlinie weiter.
-        - Endet sie am City Carré: Umlauf aus den Daten, sonst die nächste dort beginnende Fahrt der Partnerlinie
+    /** „Weiter als …“: nur für bekannte Linienwechsel (M.LineChanges, beide Richtungen).
+        - Geht die Fahrt in den Daten über den Wechselhalt hinaus, fährt dieselbe Bahn ab dort als Partnerlinie weiter.
+        - Endet sie dort: Umlauf aus den Daten, sonst die nächste dort beginnende Fahrt der Partnerlinie
           (alle Bahnsteige, bis 25 Minuten später). Ohne solche Fahrt (z. B. letzte Fahrt ins Depot): kein Wechsel. */
     continuation(x) {
-      if (!x || !x.tripId || x.src !== 'motis' || !M.partnerLine(x.line)) return Promise.resolve(null);
+      if (!x || !x.tripId || x.src !== 'motis' || !M.hasLineChange(x.line)) return Promise.resolve(null);
       return memo(M.Transit.contKey(x), async () => {
         const t = await M.Transit.trip(x.tripId, 'motis');
-        const partner = M.partnerLine(t.line);
-        if (!partner) return null;
-        const n = t.stops.length, ci = t.stops.findIndex((s, i) => i > 0 && M.isChangeStop(s.name));
+        const n = t.stops.length, ci = M.changeIdx(t, 1);
         if (ci < 0) return null;
+        const partner = M.partnerLine(t.line, t.stops[ci].name);
         const end = t.stops[ci], last = t.stops[n - 1];
         if (ci < n - 1) return M.servesAfter(t, ci) ? { line: partner, headsign: last.name, at: end.name, tripId: '', src: 'motis', same: true } : null;
         if (t.continues && t.continues.line && t.continues.line.name === partner.name) return t.continues;
@@ -747,7 +765,7 @@
         // alle Bahnsteige der Haltestelle (Ankunft und Abfahrt liegen am City Carré oft an verschiedenen Kanten)
         const r = await M.Transit.departures({ name: end.name, lat: end.lat, lon: end.lon, type: 'coord', src: 'motis' }, { n: 80, time: bucket(arr.getTime() - 2 * 60000) });
         const c = r.list.filter((d) => d.line.mode === t.line.mode && d.line.name === partner.name && !d.cancelled && d.tripId !== x.tripId &&
-          d.planned - arr >= -60000 && d.planned - arr <= 25 * 60000 && (!d.origin || M.isChangeStop(d.origin.name)))
+          d.planned - arr >= -60000 && d.planned - arr <= 25 * 60000 && (!d.origin || M.isChangeStop(d.origin.name, d.line)))
           .sort((a, b) => a.planned - b.planned)[0];
         return c ? { line: c.line, headsign: destName(c.headsign, end.name, c.dest && c.dest.name), at: end.name, tripId: c.tripId, src: 'motis', time: c.time } : null;
       });
@@ -759,7 +777,7 @@
     boardHeadsign(t) {
       if (!t || t.src !== 'motis' || !t.tripId || !t.line || (t.line.mode !== 'tram' && t.line.mode !== 'bus')) return Promise.resolve(null);
       const n = t.stops.length;
-      const ci = t.stops.findIndex((s, i) => i > 0 && i < n - 1 && M.isChangeStop(s.name));
+      const ci = t.stops.findIndex((s, i) => i > 0 && i < n - 1 && M.isChangeStop(s.name, t.line));
       if (ci < 0) return Promise.resolve(null);
       return memo('h|' + t.tripId, async () => {
         const now = Date.now();
@@ -772,14 +790,14 @@
         return hit && hit.headsign ? hit.headsign : null;
       });
     },
-    /** „Kommt als …“: Beginnt eine 5 (13) am City Carré, kam die Bahn kurz vorher als 1 (2) dort an. */
+    /** „Kommt als …“: Beginnt eine Linie am Wechselhalt, kam die Bahn kurz vorher als Partnerlinie dort an. */
     comesAs(x) {
-      if (!x || !x.tripId || x.src !== 'motis' || !x.origin || !x.stop || !sameStop(x.origin, x.stop) || !M.isChangeStop(x.stop.name)) return Promise.resolve(null);
-      const from = M.partnerLine(x.line);
+      if (!x || !x.tripId || x.src !== 'motis' || !x.origin || !x.stop || !sameStop(x.origin, x.stop) || !M.isChangeStop(x.stop.name, x.line)) return Promise.resolve(null);
+      const from = M.partnerLine(x.line, x.stop.name);
       if (!from) return Promise.resolve(null);
       return memo('k|' + x.tripId, async () => {
         const r = await M.Transit.departures({ name: x.stop.name, lat: x.stop.lat, lon: x.stop.lon, type: 'coord', src: 'motis' }, { n: 80, arrivals: true, time: bucket(x.planned.getTime() - 27 * 60000) });
-        const c = r.list.filter((a) => a.line.mode === x.line.mode && a.line.name === from.name && !a.cancelled && a.dest && M.isChangeStop(a.dest.name) &&
+        const c = r.list.filter((a) => a.line.mode === x.line.mode && a.line.name === from.name && !a.cancelled && a.dest && M.isChangeStop(a.dest.name, a.line) &&
           x.planned - a.planned >= -60000 && x.planned - a.planned <= 25 * 60000)
           .sort((a, b) => b.planned - a.planned)[0];
         return c ? { line: c.line, from: c.origin ? c.origin.name : '', tripId: c.tripId, src: 'motis' } : null;
@@ -886,6 +904,21 @@
       const seen = new Set(), list = [];
       top.concat(Array.from(pick.values())).forEach((g) => { if (!seen.has(g.name)) { seen.add(g.name); list.push(g); } });
       return { list, top };
+    },
+
+    /** Alle Bahnhöfe im Bediengebiet der MVB (S-Bahn, Regional- und Fernverkehr), zusammengefasst je Bahnhof.
+        Zuerst die Haltestellen mit Verkehrsmitteln, sonst die Halte aus den Linienverläufen der Züge. */
+    async stations() {
+      const B = M.CONFIG.serviceBBox;
+      let raw = await Motis.railStops(B).catch(() => null);
+      if (!raw || !raw.length) {
+        const routes = await M.Transit.cityRoutes().catch(() => []);
+        raw = [];
+        routes.filter((r) => M.isRail(r.line.mode)).forEach((r) => r.variants.forEach((v) => v.stops.forEach((st) => {
+          if (st && M.inService(st.lat, st.lon)) raw.push({ id: st.id, name: st.name, lat: st.lat, lon: st.lon, importance: 1, modes: [r.line.mode], type: 'stop', src: 'motis', rail: true });
+        })));
+      }
+      return M.Transit.groupStops(raw.filter((x) => M.inService(x.lat, x.lon))).map((g) => Object.assign(g, { rail: true }));
     },
 
     /** Alle Linien im Bediengebiet der MVB mit ihren Verläufen – auch Sonderlinien (z. B. 15) und Nachtlinien.

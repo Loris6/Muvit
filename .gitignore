@@ -1,0 +1,3 @@
+service/node_modules/
+service/.wrangler/
+service/dist/

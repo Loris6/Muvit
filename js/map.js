@@ -144,8 +144,8 @@
     };
     const small = '700 ' + (6.6 * DPR) + 'px Rubik, system-ui, sans-serif', big = '700 ' + (13 * DPR) + 'px Rubik, system-ui, sans-serif';
     let X = pad + padP;
-    if (mode === 'sbahn') badge(X, B, '#008D4F', true, 'S', big, '#FFFFFF');
-    else if (mode === 'ubahn') badge(X, B, '#115D91', false, 'U', big, '#FFFFFF');
+    if (mode === 'sbahn') badge(X, B, M.DB_COLORS.sbahn, true, 'S', big, '#FFFFFF');
+    else if (mode === 'ubahn') badge(X, B, M.DB_COLORS.ubahn, false, 'U', big, '#FFFFFF');
     else if (isTrain && op === 'db') {
       // DB-Logo: weiß, roter Rahmen, rote Buchstaben
       const u = B / 24;
@@ -154,7 +154,7 @@
       x.fillStyle = '#EC0016'; x.font = '700 ' + (14 * u) + 'px Arial, Helvetica, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
       x.fillText('DB', X + modeW / 2, top + B / 2 + u);
     } else if (isTrain) { badge(X, B, '#2B2C31', false, '', small, ''); glyph(X, 'train'); }
-    else if (mode === 'ferry') { badge(X, B, '#1C7FB0', false, '', small, ''); glyph(X, 'ferry'); }
+    else if (mode === 'ferry') { badge(X, B, M.DB_COLORS.ship, false, '', small, ''); glyph(X, 'ferry'); }
     if (modeW) X += modeW + gap;
     badge(X, lineW, bg, mode === 'bus', label, numFont, fg);
     // Echtzeit: dunkler runder Punkt oben rechts mit weißem Funk-Zeichen und weißem Rand (wie in den Listen)
@@ -181,7 +181,7 @@
   function addLayers() {
     const m = Mp.map;
     addImages();
-    ['me-acc', 'route', 'route-pts', 'stops', 'vehicles'].forEach((id) => {
+    ['me-acc', 'route', 'route-pts', 'stops', 'stations', 'vehicles'].forEach((id) => {
       if (!m.getSource(id)) m.addSource(id, { type: 'geojson', data: EMPTY });
     });
     m.addLayer({ id: 'me-acc', type: 'fill', source: 'me-acc', paint: { 'fill-color': '#3D7BFF', 'fill-opacity': 0.12 } });
@@ -216,6 +216,20 @@
         'text-color': Mp.theme === 'dark' ? '#E7E9F3' : '#2A2E40',
         'text-halo-color': Mp.theme === 'dark' ? '#0b0c14' : '#ffffff', 'text-halo-width': 1.6
       } });
+    // Bahnhöfe: immer sichtbar (auch in der Stadtübersicht), mit Haltestellenschild und Namen
+    m.addLayer({ id: 'stations', type: 'symbol', source: 'stations', minzoom: 10,
+      layout: {
+        'icon-image': 'h-sign', 'icon-allow-overlap': true, 'icon-ignore-placement': false,
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.5, 12, 0.62, 13.5, 0.75, 15, 0.9, 17, 1.12],
+        'symbol-sort-key': ['-', 0, ['get', 'importance']],
+        'text-field': ['step', ['zoom'], '', 12.2, ['get', 'name']],
+        'text-font': ['Noto Sans Regular'], 'text-size': ['interpolate', ['linear'], ['zoom'], 12, 11, 16, 13],
+        'text-offset': [0, 1.3], 'text-anchor': 'top', 'text-optional': true, 'text-max-width': 9
+      },
+      paint: {
+        'text-color': Mp.theme === 'dark' ? '#F2F3F7' : '#1E2233',
+        'text-halo-color': Mp.theme === 'dark' ? '#0b0c14' : '#ffffff', 'text-halo-width': 1.6
+      } });
     m.addLayer({ id: 'veh-arrow', type: 'symbol', source: 'vehicles', minzoom: 12.5,
       layout: {
         'icon-image': 'veh-arrow', 'icon-size': 0.6, 'icon-rotate': ['get', 'bearing'], 'icon-rotation-alignment': 'map',
@@ -229,6 +243,7 @@
         'symbol-sort-key': ['get', 'rank']
       } });
     refreshStopsSource();
+    loadStations();
     if (Mp._route) setRouteData(Mp._route);
     updateMeAccuracy();
   }
@@ -272,17 +287,17 @@
     // Klicks
     m.on('click', (e) => {
       if (Mp._pick) { const r = Mp._pick; Mp._pick = null; r({ lat: e.lngLat.lat, lon: e.lngLat.lng }); return; }
-      const feats = m.queryRenderedFeatures(e.point, { layers: ['vehicles', 'stops'].filter((l) => m.getLayer(l)) });
+      const feats = m.queryRenderedFeatures(e.point, { layers: ['vehicles', 'stations', 'stops'].filter((l) => m.getLayer(l)) });
       if (!feats.length) return;
       const f = feats[0];
       if (f.layer.id === 'vehicles') {
         M.emit('vehicle:select', { tripId: f.properties.tripId, name: f.properties.name, mode: f.properties.mode, headsign: f.properties.to });
-      } else if (f.layer.id === 'stops') {
-        const g = Mp.stopGroups.get(f.properties.id);
+      } else if (f.layer.id === 'stops' || f.layer.id === 'stations') {
+        const g = (f.layer.id === 'stations' ? Mp.stations : Mp.stopGroups).get(f.properties.id);
         if (g) M.emit('place:action', { action: 'dep', place: { id: g.id, name: g.name, lat: g.lat, lon: g.lon, type: 'stop', src: g.src, area: g.area } });
       }
     });
-    ['vehicles', 'stops'].forEach((l) => {
+    ['vehicles', 'stops', 'stations'].forEach((l) => {
       m.on('mouseenter', l, () => { m.getCanvas().style.cursor = 'pointer'; });
       m.on('mouseleave', l, () => { m.getCanvas().style.cursor = ''; });
     });
@@ -396,17 +411,30 @@
     });
     refreshStopsSource();
   };
+  /* ---------------- Bahnhöfe (immer sichtbar) ---------------- */
+  Mp.stations = new Map();
+  let stationsP = null;
+  function loadStations() {
+    if (stationsP) return stationsP;
+    stationsP = M.Transit.stations().then((list) => {
+      list.forEach((g) => { const key = 'bf:' + g.name + '@' + g.lat.toFixed(3) + ',' + g.lon.toFixed(3); g.key = key; Mp.stations.set(key, g); });
+      refreshStopsSource();
+    }).catch((e) => { console.warn('[Muvit] Bahnhöfe nicht geladen', e); stationsP = null; });
+    return stationsP;
+  }
+  /** Haltestelle gehört zu einem Bahnhof (gleicher Name, in der Nähe) – dann zeigt nur der Bahnhof sein Schild */
+  const atStation = (g) => { for (const b of Mp.stations.values()) if (M.normStop(b.name) === M.normStop(g.name) && M.dist(b.lat, b.lon, g.lat, g.lon) < 400) return true; return false; };
+  const feature = (g, key) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [g.lon, g.lat] }, properties: { id: key, name: g.name, importance: g.importance || 0 } });
   function refreshStopsSource() {
-    const src = Mp.map && Mp.map.getSource('stops');
+    const src = Mp.map && Mp.map.getSource('stops'), bsrc = Mp.map && Mp.map.getSource('stations');
     if (!src) return;
-    const feats = [];
+    const feats = [], bfeats = [];
     if (Mp.showStops) {
-      Mp.stopGroups.forEach((g, key) => feats.push({
-        type: 'Feature', geometry: { type: 'Point', coordinates: [g.lon, g.lat] },
-        properties: { id: key, name: g.name, importance: g.importance || 0 }
-      }));
+      Mp.stopGroups.forEach((g, key) => { if (!atStation(g)) feats.push(feature(g, key)); });
+      Mp.stations.forEach((g, key) => bfeats.push(feature(g, key)));
     }
     src.setData({ type: 'FeatureCollection', features: feats });
+    if (bsrc) bsrc.setData({ type: 'FeatureCollection', features: bfeats });
   }
   Mp.setShowStops = function (on) { Mp.showStops = on; refreshStopsSource(); if (on) loadStopsInView(); };
 

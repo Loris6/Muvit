@@ -137,7 +137,8 @@
     const known = stopName ? M.linesForStop(stopName).find((l) => l.name === num) : null;
     if (known) return known.mode;
     if (ctxLine && (ctxLine.mode === 'tram' || ctxLine.mode === 'bus')) return M.isMvbTram(num) ? 'tram' : 'bus';
-    return ctxLine ? ctxLine.mode : 'bus';
+    // ohne Bezug: in Magdeburg sind 1–10 und 13 Straßenbahnen, sonst Bus
+    return ctxLine ? ctxLine.mode : M.isMvbTram(num) ? 'tram' : 'bus';
   }
   const LIST_RE = /\b(Straßenbahnlinien|Straßenbahnlinie|Straßenbahnen|Straßenbahn|Tram|STR|Buslinien|Buslinie|Busse|Bus|Linien|Linie|S-Bahn|S|U|RE|RB|IRE|ICE|IC|EC|ECE)\s?(\d{1,5}[a-zA-Z]?(?:\s*(?:,|\/|&amp;|und|u\.)\s*\d{1,5}[a-zA-Z]?)+)\b/g;
   const KW_LIST = { 'Straßenbahnlinien': 'tram', 'Straßenbahnen': 'tram', Buslinien: 'bus', Busse: 'bus' };
@@ -167,16 +168,15 @@
   C.throughNoteOk = function (text, x) {
     const t = String(text || '');
     if (!/(weiter\s+als|kommt\s+als|kommend\s+als|Linienwechsel)/i.test(t)) return true;
-    // Linienwechsel gibt es nur 1 ↔ 5 und 2 ↔ 13 am City Carré – andere Hinweise dazu nicht zeigen
-    const partner = x && x.line && M.partnerLine(x.line);
+    // nur bekannte Linienwechsel (M.LineChanges) – andere Hinweise dazu nicht zeigen
+    const here = x && x.stop && x.stop.name;
+    const at = (t.match(/\bab\s+(.+?)\s+(?:weiter|als)\b/i) || [])[1] || (x && x.headsign) || here;
+    const partner = x && x.line && M.partnerLine(x.line, at);
     if (!partner) return false;
     const num = (t.match(/als\s+(?:Linie|Tram|STR|Straßenbahn(?:linie)?)?\s*(\d{1,3})\b/i) || [])[1];
     if (num && num !== partner.name) return false;
     const dest = (t.match(/\bnach\s+(.+?)[.!]?\s*$/i) || [])[1];
-    const here = x && x.stop && x.stop.name;
-    if (dest && (nn(dest) === nn(here) || (x && nn(dest) === nn(x.headsign)))) return false;
-    const at = (t.match(/\bab\s+(.+?)\s+(?:weiter|als)\b/i) || [])[1] || (x && x.headsign) || here;
-    return M.isChangeStop(at);
+    return !(dest && (nn(dest) === nn(here) || (x && nn(dest) === nn(x.headsign))));
   };
   /** Hinweiszeilen unter einer Linie: Störungen/Umleitungen (Warnung) und Durchläufer (Info) */
   C.infoLines = function (x, i, o) {
@@ -184,7 +184,7 @@
     const at = x.stop && x.stop.name;
     let h = '';
     (x.alerts || []).slice(0, o.max || 2).forEach((a, k) => {
-      h += '<button class="alert-line" data-alert="' + i + ':' + k + '">' + icon('warnFill', 'w') + '<span class="tx">' + C.richText(a.title, x.line, at) + '</span><span class="chev">' + (a.text ? icon('right') : '') + '</span></button>';
+      h += '<button class="alert-line" data-alert="' + i + ':' + k + '">' + icon('warnFill', a.red ? 'w red' : 'w') + '<span class="tx">' + C.richText(a.title, x.line, at) + '</span><span class="chev">' + (a.text ? icon('right') : '') + '</span></button>';
     });
     const note = (html) => '<div class="alert-line note">' + icon('infoFill', 'n') + '<span class="tx">' + html + '</span><span></span></div>';
     // Textnotizen zu Durchläufern nicht doppelt zeigen, wenn die Weiterfahrt schon erkannt ist,

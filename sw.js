@@ -1,7 +1,7 @@
 /* Muvit – Service Worker: Mitteilungen (z. B. „Anschluss wird nicht erreicht“) und Öffnen der App per Tipp */
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
-// Web Push vom Muvit-Push-Dienst (kommt auch, wenn die App geschlossen ist)
+// Web Push vom Muvit-Dienst (kommt auch, wenn die App geschlossen ist)
 self.addEventListener('push', (e) => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (err) { d = { title: 'Muvit', body: e.data ? e.data.text() : '' }; }
