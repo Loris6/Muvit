@@ -17,7 +17,7 @@ import * as DB from './db.mjs';
 import * as NV from './nv.mjs';
 import { pushRoute, pushCron } from './push.mjs';
 
-const VERSION = 4;
+const VERSION = 5;
 
 function cors(env, req) {
   const origin = req.headers.get('Origin') || '';
@@ -95,6 +95,8 @@ async function diag(env) {
     probe('regio-guide board', 'https://regio-guide.de/@prd/zupo-travel-information/api/public/ri/board/departure/' + eva + '?modeOfTransport=HIGH_SPEED_TRAIN,INTERCITY_TRAIN,INTER_REGIONAL_TRAIN,REGIONAL_TRAIN,CITY_TRAIN&timeStart=' + encodeURIComponent(new Date().toISOString()) + '&timeEnd=' + encodeURIComponent(new Date(Date.now() + 3600000).toISOString()) + '&expandTimeFrame=TIME_END'),
     probe('iris', 'https://iris.noncd.db.de/iris-tts/timetable/station/' + eva),
     probe('ist-wr', 'https://ist-wr.noncd.db.de/wagenreihung/1.0/' + nr + '/' + ts),
+    probe('navigator (vendo)', 'https://app.vendo.noncd.db.de/mob/location/search', { method: 'POST', headers: { 'Content-Type': 'application/x.db.vendo.mob.location.v3+json', Accept: 'application/x.db.vendo.mob.location.v3+json', 'User-Agent': 'Mozilla/5.0 (Muvit)' }, body: JSON.stringify({ locationTypes: ['ST'], searchTerm: 'Magdeburg Hbf', maxResults: 1 }) }),
+    probe('bahnhof.de board', 'https://www.bahnhof.de/api/boards/departures?evaNumbers=' + eva + '&duration=60&locale=de'),
     probe('db.transport.rest', 'https://v6.db.transport.rest/stops/' + eva + '/departures?duration=10&results=1')
   ]);
   const out = { at: new Date().toISOString(), train, probes };

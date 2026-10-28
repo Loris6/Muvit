@@ -46,7 +46,7 @@
   };
 
   /* ---------------- Haltestellen zuordnen (gespeichert) ---------------- */
-  const MAPKEY = 'dienstStops', MISS = new Map();
+  const MAPKEY = 'dienstStops2', MISS = new Map();
   async function mapped(kind, stop) {
     if (!stop || !stop.name) return null;
     const key = kind + '|' + M.normStop(stop.name) + '|' + (stop.lat != null ? stop.lat.toFixed(3) + ',' + stop.lon.toFixed(3) : '');
@@ -57,8 +57,10 @@
     let r;
     try { r = await D.get(kind === 'db' ? '/db/station' : '/nv/stop', { name: stop.name, lat: stop.lat, lon: stop.lon }); }
     catch (e) { if (e.status === 404) { MISS.set(key, Date.now()); return null; } throw e; }
-    const id = (r.station || r.stop || {}).id || null;
-    if (!id) { MISS.set(key, Date.now()); return null; }
+    const found = r.station || r.stop || {};
+    if (!found.id) { MISS.set(key, Date.now()); return null; }
+    // DB: Nummer der Quelle (id) und EVA-Nummer der DB (für Verspätungsgründe und Wagenreihung)
+    const id = kind === 'db' ? { id: found.id, eva: found.eva || null } : found.id;
     const keys = Object.keys(all);
     if (keys.length > 300) delete all[keys[0]];
     all[key] = id;
@@ -171,7 +173,7 @@
       jobs.push(D.nvStop(stop).then((id) => id && D.get('/nv/departures', { stop: id, when, duration })).then((r) => (r ? match(local, r.departures || []) : 0)));
     }
     if (rail.length) {
-      jobs.push(D.dbStation(stop).then((id) => id && D.get('/db/departures', { eva: id, when, duration })).then((r) => (r ? match(rail, r.departures || []) : 0)));
+      jobs.push(D.dbStation(stop).then((st) => st && D.get('/db/departures', { eva: st.id, iris: st.eva, when, duration })).then((r) => (r ? match(rail, r.departures || []) : 0)));
     }
     const res = await Promise.allSettled(jobs);
     return res.some((r) => r.status === 'fulfilled' && r.value > 0);
@@ -194,9 +196,10 @@
   /** Wagenreihung eines Zuges an einem Halt: Zug bei der DB suchen (Zugnummer, Gattung), dann die Reihung holen */
   D.wagenreihung = async function (line, stop, planned) {
     if (!(await D.ready())) return { available: false, reason: 'dienst' };
-    const eva = await D.dbStation(stop);
-    if (!eva) return { available: false, reason: 'station' };
-    const r = await D.get('/db/departures', { eva, when: new Date(planned.getTime() - 2 * 60000), duration: 30 });
+    const st = await D.dbStation(stop);
+    if (!st || !st.eva) return { available: false, reason: 'station' };
+    const eva = st.eva;
+    const r = await D.get('/db/departures', { eva: st.id, iris: eva, when: new Date(planned.getTime() - 2 * 60000), duration: 30 });
     const fake = { line, planned };
     const dep = (r.departures || []).filter((s) => s.plannedWhen && sameLine(fake, s))
       .sort((a, b) => Math.abs(new Date(a.plannedWhen) - planned) - Math.abs(new Date(b.plannedWhen) - planned))[0];

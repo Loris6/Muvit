@@ -28,16 +28,17 @@ const st = await get('/db/station', { name: 'Magdeburg Hbf', lat: 52.1302, lon: 
 console.log('  Bahnhof:', JSON.stringify(st.station));
 let train = null;
 if (st.station) {
-  const d = await get('/db/departures', { eva: st.station.id, duration: 120 });
+  const d = await get('/db/departures', { eva: st.station.id, iris: st.station.eva || '', duration: 120 });
   const list = d.departures || [];
-  console.log(`  ${list.length} Abfahrten, davon mit Meldungen: ${list.filter((x) => x.remarks && x.remarks.length).length}`);
+  console.log(`  ${list.length} Abfahrten, davon mit Meldungen: ${list.filter((x) => x.remarks && x.remarks.length).length}, mit Gründen der DB (IRIS): ${list.filter((x) => (x.remarks || []).some((r) => /^iris-/.test(r.code || ''))).length}`);
+  list.filter((x) => (x.remarks || []).some((r) => /^iris-/.test(r.code || ''))).slice(0, 5).forEach((x) => console.log('  IRIS:' + dep(x)));
   list.slice(0, 10).forEach((x) => console.log(dep(x)));
-  train = list.find((x) => x.line && /^(ICE|IC|EC)$/.test(x.line.productName) && x.line.fahrtNr) || list.find((x) => x.line && x.line.fahrtNr && /^(RE|RB)$/.test(x.line.productName));
+  train = list.find((x) => x.line && /^(ICE|IC|EC)/.test(x.line.productName || x.line.name) && x.line.fahrtNr) || list.find((x) => x.line && x.line.fahrtNr && /^(RE|RB)$/.test(x.line.productName));
 }
 // Wagenreihung des ersten Fernzugs
 if (train) {
   const pw = new Date(train.plannedWhen);
-  const w = await get('/db/wagenreihung', { category: train.line.productName, number: train.line.fahrtNr, eva: st.station.id, date: berlinDate.format(pw), time: pw.toISOString(), admin: train.line.adminCode || '' });
+  const w = await get('/db/wagenreihung', { category: train.line.productName, number: train.line.fahrtNr, eva: st.station.eva || st.station.id, date: berlinDate.format(pw), time: pw.toISOString(), admin: train.line.adminCode || '' });
   console.log(`  ${train.line.name} (${train.line.fahrtNr}): verfügbar=${w.available}, Gleis ${w.platform && w.platform.name}, Abschnitte ${(w.platform && w.platform.sectors || []).map((s) => s.name).join('')}, Richtung ${w.direction}`);
   (w.vehicles || []).slice(0, 14).forEach((x) => console.log(`    ${x.engine ? 'Triebkopf/Lok' : 'Wagen ' + (x.number || '–')} ${x.first ? '1.Kl ' : ''}${x.second ? '2.Kl ' : ''}${x.dining ? 'Speise ' : ''}Abschn. ${x.sector || '?'} ${x.start}–${x.end} m  ${x.amenities.map((a) => a.type).join(',')}`));
 } else console.log('\n  Kein Zug für die Wagenreihung gefunden');

@@ -10,6 +10,7 @@ import { profile as dbweb } from 'db-vendo-client/p/dbweb/index.js';
 import { profile as dbnav } from 'db-vendo-client/p/dbnav/index.js';
 import { UA, num, normName, pick } from './util.mjs';
 import { insaClient } from './nv.mjs';
+import * as IRIS from './iris.mjs';
 
 const PROFILES = { dbweb, dbnav };
 const clients = {};
@@ -90,25 +91,36 @@ export async function station(env, q) {
     const best = list.find((s) => want && normName(s.name) === want) || list.find((s) => want && (normName(s.name).includes(want) || want.includes(normName(s.name)))) || list[0];
     return best ? { id: best.id, name: best.name, location: best.location || null } : null;
   };
-  return tryAll(env, async (c) => {
+  const isEva = (id) => /^80\d{5}$/.test(String(id));
+  const st = await tryAll(env, async (c) => {
     let best = null;
     if (q.lat && q.lon) best = pickBest(await c.nearby({ type: 'location', latitude: +q.lat, longitude: +q.lon }, { results: 8, distance: 600, language: 'de' }));
     if (!best && q.name) best = pickBest(await c.locations(q.name, { results: 6, addresses: false, poi: false, language: 'de' }));
     return best;
   }, true);
+  if (!st) return null;
+  // EVA-Nummer der DB (für IRIS und Wagenreihung) – INSA nutzt eigene Nummern
+  st.eva = isEva(st.id) ? String(st.id) : ((await IRIS.station(st.name).catch(() => null)) || {}).eva || null;
+  return st;
 }
 
 /** Abfahrten eines Bahnhofs mit Gleis, Verspätung und Meldungen (z. B. „Verspätung aus vorheriger Fahrt“) */
 export async function departures(env, q) {
-  const r = await tryAll(env, (c) => c.departures(q.eva, { when: q.when ? new Date(q.when) : new Date(), duration: Math.min(240, +(q.duration || 120)), remarks: true, language: 'de' }));
+  const when = q.when ? new Date(q.when) : new Date(), duration = Math.min(240, +(q.duration || 120));
+  const r = await tryAll(env, (c) => c.departures(q.eva, { when, duration, remarks: true, language: 'de' }));
   const list = Array.isArray(r) ? r : r.departures || [];
-  return {
-    departures: list.map((d) => ({
-      tripId: d.tripId, when: d.when, plannedWhen: d.plannedWhen, delay: d.delay != null ? d.delay : null,
-      platform: d.platform || null, plannedPlatform: d.plannedPlatform || null, cancelled: !!d.cancelled,
-      direction: d.direction || '', line: nLine(d.line), remarks: (d.remarks || []).map(nRemark).filter((x) => x.text || x.summary)
-    }))
-  };
+  const out = list.map((d) => ({
+    tripId: d.tripId, when: d.when, plannedWhen: d.plannedWhen, delay: d.delay != null ? d.delay : null,
+    platform: d.platform || null, plannedPlatform: d.plannedPlatform || null, cancelled: !!d.cancelled,
+    direction: d.direction || '', line: nLine(d.line), remarks: (d.remarks || []).map(nRemark).filter((x) => x.text || x.summary)
+  }));
+  // Verspätungsgründe, Qualitätshinweise, Ausfälle und Gleiswechsel aus IRIS (DB-Abfahrtstafel)
+  const eva = q.iris || (/^80\d{5}$/.test(String(q.eva)) ? q.eva : null);
+  if (eva && !testClient) {
+    const trains = await IRIS.board(eva, new Date(when.getTime() - 5 * 60000), duration + 5).catch(() => null);
+    if (trains) IRIS.merge(out, trains);
+  }
+  return { departures: out };
 }
 
 /** Fahrtverlauf eines Zuges mit Echtzeit und Meldungen je Halt */
