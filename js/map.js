@@ -144,8 +144,8 @@
     };
     const small = '700 ' + (6.6 * DPR) + 'px Rubik, system-ui, sans-serif', big = '700 ' + (13 * DPR) + 'px Rubik, system-ui, sans-serif';
     let X = pad + padP;
-    if (mode === 'sbahn') badge(X, B, '#008D4F', true, 'S', big, '#FFFFFF');
-    else if (mode === 'ubahn') badge(X, B, '#115D91', false, 'U', big, '#FFFFFF');
+    if (mode === 'sbahn') badge(X, B, M.DB_COLORS.sbahn, true, 'S', big, '#FFFFFF');
+    else if (mode === 'ubahn') badge(X, B, M.DB_COLORS.ubahn, false, 'U', big, '#FFFFFF');
     else if (isTrain && op === 'db') {
       // DB-Logo: weiß, roter Rahmen, rote Buchstaben
       const u = B / 24;
@@ -154,7 +154,7 @@
       x.fillStyle = '#EC0016'; x.font = '700 ' + (14 * u) + 'px Arial, Helvetica, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
       x.fillText('DB', X + modeW / 2, top + B / 2 + u);
     } else if (isTrain) { badge(X, B, '#2B2C31', false, '', small, ''); glyph(X, 'train'); }
-    else if (mode === 'ferry') { badge(X, B, '#1C7FB0', false, '', small, ''); glyph(X, 'ferry'); }
+    else if (mode === 'ferry') { badge(X, B, M.DB_COLORS.ship, false, '', small, ''); glyph(X, 'ferry'); }
     if (modeW) X += modeW + gap;
     badge(X, lineW, bg, mode === 'bus', label, numFont, fg);
     // Echtzeit: dunkler runder Punkt oben rechts mit weißem Funk-Zeichen und weißem Rand (wie in den Listen)

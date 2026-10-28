@@ -8,15 +8,15 @@
     // Magdeburg (Alter Markt)
     center: { lat: 52.1316, lon: 11.6392 },
     zoom: 13.4,
-    // Linienwechsel der MVB (Straßenbahn): Die Bahn kommt als eine Linie am City Carré an und fährt als die
-    // andere weiter – in beide Richtungen. Andere Linienwechsel gibt es nicht; Muvit zeigt nur diese.
-    changeStops: ['City Carré'],
+    // Linienwechsel der MVB: Die Bahn kommt als eine Linie an und fährt als andere weiter (beide Richtungen).
+    // Muvit lernt Wechsel selbst aus den Echtzeitdaten und den Hinweisen der MVB (M.LineChanges). Das hier sind nur
+    // Vorgaben; unter Mehr → Einstellungen → Linienwechsel lassen sie sich abschalten und eigene ergänzen.
     lineChanges: [
       { a: '1', b: '5', at: 'City Carré' },
       { a: '2', b: '13', at: 'City Carré' }
     ],
-    // Mitteilungen bei geschlossener App (Web Push) – Adresse des eigenen Push-Dienstes, siehe push/README.md
-    push: { server: '', vapidPublic: '' },
+    // Muvit-Dienst (echte DB- und MVB-Daten, Wagenreihung, Push): Adresse steht in config.json (GitHub-Action),
+    // alternativ unter Einstellungen. Siehe service/README.md
     // Stadtgebiet Magdeburg (grob) – für Tarifhinweise
     mdBBox: { minLat: 52.03, maxLat: 52.235, minLon: 11.50, maxLon: 11.78 },
     /** Bediengebiet der MVB: Magdeburg mit Randgebieten und Biederitz (Heyrothsberge, Gerwisch) */
@@ -50,16 +50,97 @@
   M.isMagdeburgName = (v) => /^magdeburg$/i.test(String(v || '').trim());
   // Akzente weg („Carré“ = „Carre“), nur Buchstaben und Ziffern
   const normName = (n) => M.localName(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9äöüß]/g, '');
-  /** Linienwechsel-Haltestelle (City Carré, auch „City Carré/Hbf“ u. Ä.)? */
-  M.isChangeStop = (name) => { const n = normName(name); return !!n && M.CONFIG.changeStops.some((c) => n.includes(normName(c))); };
-  /** Partnerlinie am Wechselhalt: 1 ↔ 5, 2 ↔ 13 (nur Straßenbahn). Mit „at“ nur, wenn der Halt ein Wechselhalt ist. */
-  M.partnerLine = (line, at) => {
-    if (!line || line.mode !== 'tram' || !M.mkLine) return null;
-    const r = (M.CONFIG.lineChanges || []).find((x) => (x.a === line.name || x.b === line.name) && (at == null || normName(at).includes(normName(x.at))));
-    return r ? M.mkLine(r.a === line.name ? r.b : r.a, line.mode) : null;
+  M.normStop = normName;
+
+  /* ---------------- Linienwechsel ----------------
+     Quellen (in dieser Reihenfolge maßgeblich):
+     - own:     selbst eingetragen (Einstellungen → Linienwechsel)
+     - insa:    Hinweis der MVB/INSA, z. B. „ab City Carré weiter als Linie 5“ (über den Muvit-Dienst)
+     - data:    Echtzeitdaten: dasselbe Fahrzeug steht gleichzeitig als alte und neue Linie in der Abfahrtstafel
+     - default: Vorgaben aus CONFIG.lineChanges
+     Erkannte Wechsel gelten 14 Tage ab dem letzten Nachweis. Jeder Wechsel lässt sich abschalten. */
+  const LC_KEY = 'lineChanges', LC_KEEP = 14 * 86400000, LC_RANK = { own: 0, insa: 1, data: 2, default: 3 };
+  const lcLoad = () => Object.assign({ learned: [], own: [], off: [] }, M.store.get(LC_KEY, {}));
+  const lcId = (r) => (r.mode || 'tram') + '|' + [String(r.a), String(r.b)].sort().join('-') + '@' + normName(r.at);
+  let lcCache = null;
+  M.LineChanges = {
+    id: lcId,
+    /** alle bekannten Wechsel (auch abgeschaltete), beste Quelle zuerst */
+    all() {
+      if (lcCache) return lcCache;
+      const d = lcLoad(), now = Date.now(), seen = new Map();
+      const add = (r, src) => { const k = lcId(r); if (!seen.has(k)) seen.set(k, Object.assign({ mode: 'tram' }, r, { id: k, src, off: d.off.includes(k) })); };
+      d.own.forEach((r) => add(r, 'own'));
+      d.learned.filter((r) => now - (r.seen || 0) < LC_KEEP && (r.src !== 'data' || (r.refs || []).length >= 2)).sort((a, b) => LC_RANK[a.src] - LC_RANK[b.src]).forEach((r) => add(r, r.src || 'data'));
+      (M.CONFIG.lineChanges || []).forEach((r) => add(r, 'default'));
+      lcCache = Array.from(seen.values());
+      // Vorgaben treten zurück, sobald für eine ihrer Linien am selben Halt ein erkannter oder eigener Wechsel gilt
+      lcCache.forEach((r) => {
+        if (r.src !== 'default') return;
+        const by = lcCache.find((x) => x.src !== 'default' && !x.off && (x.mode || 'tram') === (r.mode || 'tram') && normName(x.at) === normName(r.at) &&
+          [x.a, x.b].some((n) => n === r.a || n === r.b));
+        if (by) r.replaced = by.a + '↔' + by.b;
+      });
+      return lcCache;
+    },
+    active() { return this.all().filter((r) => !r.off && !r.replaced); },
+    /** Wechsel aus den Daten merken. „ref“ = Fahrt, die ihn belegt: Aus den Echtzeitdaten erkannte Wechsel gelten erst,
+        wenn zwei verschiedene Fahrten ihn zeigen (Hinweise der MVB sofort). */
+    learn(a, b, at, mode, src, ref) {
+      a = String(a || '').trim(); b = String(b || '').trim(); at = M.localName(String(at || '').trim());
+      mode = mode || 'tram'; src = src || 'data';
+      if (!a || !b || a === b || !at || (mode !== 'tram' && mode !== 'bus') || a.length > 4 || b.length > 4) return false;
+      const d = lcLoad(), k = lcId({ a, b, at, mode }), now = Date.now();
+      const hit = d.learned.find((x) => lcId(x) === k);
+      const refs = ((hit && hit.refs) || []).slice();
+      const newRef = !!ref && !refs.includes(String(ref));
+      if (newRef) refs.unshift(String(ref));
+      const better = !hit || LC_RANK[src] < LC_RANK[hit.src];
+      if (hit && !newRef && !better && now - hit.seen < 30 * 60000) return false;
+      d.learned = d.learned.filter((x) => lcId(x) !== k && now - (x.seen || 0) < LC_KEEP);
+      d.learned.unshift({ a, b, at, mode, src: better ? src : hit.src, seen: now, first: (hit && hit.first) || now, refs: refs.slice(0, 5) });
+      d.learned = d.learned.slice(0, 40);
+      M.store.set(LC_KEY, d); lcCache = null;
+      M.emit('linechanges');
+      return true;
+    },
+    add(a, b, at, mode) {
+      const d = lcLoad(), r = { a: String(a).trim(), b: String(b).trim(), at: M.localName(String(at).trim()), mode: mode || 'tram' };
+      if (!r.a || !r.b || r.a === r.b || !r.at) return false;
+      d.own = d.own.filter((x) => lcId(x) !== lcId(r)).concat(r);
+      d.off = d.off.filter((x) => x !== lcId(r));
+      M.store.set(LC_KEY, d); lcCache = null; M.emit('linechanges');
+      return true;
+    },
+    remove(id) {
+      const d = lcLoad();
+      d.own = d.own.filter((x) => lcId(x) !== id);
+      d.learned = d.learned.filter((x) => lcId(x) !== id);
+      M.store.set(LC_KEY, d); lcCache = null; M.emit('linechanges');
+    },
+    setOn(id, on) {
+      const d = lcLoad();
+      d.off = d.off.filter((x) => x !== id).concat(on ? [] : [id]);
+      M.store.set(LC_KEY, d); lcCache = null; M.emit('linechanges');
+    }
   };
-  M.ruleLine = M.partnerLine;
-  M.ruleFrom = M.partnerLine;
+  const atMatch = (r, name) => { const n = normName(name), a = normName(r.at); return !!n && !!a && (n === a || n.includes(a)); };
+  /** Wechsel-Haltestelle (z. B. City Carré, auch „City Carré/Hbf“)? Mit Linie: nur Wechsel dieser Linie */
+  M.isChangeStop = (name, line) => M.LineChanges.active().some((r) => atMatch(r, name) && (!line || ((r.mode || 'tram') === line.mode && (r.a === line.name || r.b === line.name))));
+  /** Gibt es für diese Linie überhaupt einen Wechsel? */
+  M.hasLineChange = (line) => !!line && M.LineChanges.active().some((r) => (r.mode || 'tram') === line.mode && (r.a === line.name || r.b === line.name));
+  /** Partnerlinie am Wechselhalt (z. B. 1 ↔ 5). Mit „at“ nur, wenn dort ein Wechsel für diese Linie bekannt ist. */
+  M.partnerLine = (line, at) => {
+    if (!line || !M.mkLine) return null;
+    const r = M.LineChanges.active().find((x) => (x.mode || 'tram') === line.mode && (x.a === line.name || x.b === line.name) && (at == null || atMatch(x, at)));
+    return r ? Object.assign(M.mkLine(r.a === line.name ? r.b : r.a, line.mode), { changeAt: r.at }) : null;
+  };
+  /** Erster Halt einer Fahrt (ab Index „from“), an dem diese Linie wechselt */
+  M.changeIdx = (t, from, to) => {
+    const n = t.stops.length, end = to == null ? n : to;
+    for (let i = from == null ? 1 : from; i < end; i++) if (M.partnerLine(t.line, t.stops[i].name)) return i;
+    return -1;
+  };
   /** „Magdeburg, Sudenburg“ → „Sudenburg“ */
   M.localArea = (a) => String(a || '').split(',').map((x) => x.trim()).filter((x) => x && !M.isMagdeburgName(x)).join(', ');
 
@@ -257,11 +338,11 @@
   M.MODES = {
     tram: { label: 'Straßenbahn', short: 'Tram', badge: 'Tram', icon: 'tram', color: '#BA2619' },
     bus: { label: 'Bus', short: 'Bus', badge: 'Bus', icon: 'bus', color: '#4B1C76' },
-    sbahn: { label: 'S-Bahn', short: 'S-Bahn', badge: 'S', icon: 'train', color: '#000000' },
-    regio: { label: 'Regionalzug', short: 'Zug', badge: 'RE', icon: 'train', color: '#DE6459' },
-    fern: { label: 'Fernverkehr', short: 'Fernzug', badge: 'IC', icon: 'train', color: '#BA2619' },
-    ubahn: { label: 'U-Bahn', short: 'U-Bahn', badge: 'U', icon: 'subway', color: '#1D4F9C' },
-    ferry: { label: 'Fähre', short: 'Fähre', badge: 'Fähre', icon: 'ferry', color: '#1C7FB0' },
+    sbahn: { label: 'S-Bahn', short: 'S-Bahn', badge: 'S', icon: 'train', color: '#408335' },
+    regio: { label: 'Regionalzug', short: 'Zug', badge: 'RE', icon: 'train', color: '#878C96' },
+    fern: { label: 'Fernverkehr', short: 'Fernzug', badge: 'IC', icon: 'train', color: '#282D37' },
+    ubahn: { label: 'U-Bahn', short: 'U-Bahn', badge: 'U', icon: 'subway', color: '#1455C0' },
+    ferry: { label: 'Fähre', short: 'Fähre', badge: 'Fähre', icon: 'ferry', color: '#309FD1' },
     walk: { label: 'Fußweg', short: 'zu Fuß', badge: '', icon: 'walk', color: '#7A7A7E' },
     bike: { label: 'Fahrrad', short: 'Rad', badge: '', icon: 'bike', color: '#7A7A7E' },
     other: { label: 'Verkehrsmittel', short: 'Linie', badge: '', icon: 'route', color: '#59639F' }
@@ -286,6 +367,8 @@
   /** Nachtlinie (N1, N2 …) */
   M.isNight = (line) => !!line && /^N\s?\d/i.test(String(line.name || ''));
   const BUS_LINE = '#3A3F37', BUS_REPLACEMENT = '#BA2715';
+  /** Produktfarben der Deutschen Bahn (DB UX Design System, @db-ui/base) – für alle Züge, egal welcher Betreiber */
+  M.DB_COLORS = { ice: '#282D37', ic: '#646973', regio: '#878C96', sbahn: '#408335', ubahn: '#1455C0', ship: '#309FD1' };
   const PALETTE = ['#A42D51', '#59639F', '#8EC33B', '#AF843F', '#663C88', '#2C6352', '#D9762F', '#2C93B8', '#B8456E', '#4E7A3A'];
   function hash(s) { let x = 7; for (let i = 0; i < s.length; i++) x = (x * 31 + s.charCodeAt(i)) | 0; return Math.abs(x); }
   function validHex(c) {
@@ -309,9 +392,12 @@
     if ((mode === 'tram' || mode === 'bus') && /^N\s?\d/i.test(n)) return { bg: validHex(feedColor) || NIGHT, fg: '#FFFFFF' };
     if (mode === 'tram' && MVB_TRAM[n]) return { bg: MVB_TRAM[n], fg: '#FFFFFF' };
     if (mode === 'bus') return { bg: /^(SEV|EV)/i.test(n) || n === '48' ? BUS_REPLACEMENT : BUS_LINE, fg: '#FFFFFF' };
-    if (mode === 'sbahn') return { bg: validHex(feedColor) || '#008D4F', fg: '#FFFFFF' };
-    if (mode === 'regio') return { bg: '#DE6459', fg: '#FFFFFF' };
-    if (mode === 'fern') return { bg: '#FFFFFF', fg: '#BA2619' };
+    // Züge in den Farben der Deutschen Bahn: ICE dunkel, IC/EC grau, RE/RB hellgrau, S-Bahn grün, U-Bahn blau
+    if (mode === 'fern') return { bg: /^(ICE|ECE)/i.test(n) ? M.DB_COLORS.ice : M.DB_COLORS.ic, fg: '#FFFFFF' };
+    if (mode === 'regio') return { bg: M.DB_COLORS.regio, fg: '#FFFFFF' };
+    if (mode === 'sbahn') return { bg: M.DB_COLORS.sbahn, fg: '#FFFFFF' };
+    if (mode === 'ubahn') return { bg: M.DB_COLORS.ubahn, fg: '#FFFFFF' };
+    if (mode === 'ferry') return { bg: M.DB_COLORS.ship, fg: '#FFFFFF' };
     const c = validHex(feedColor);
     if (c) return { bg: c, fg: M.textOn(c) };
     const num = parseInt(n.replace(/\D+/g, ''), 10);
@@ -321,7 +407,6 @@
   /** Farbe für Linienverläufe auf der (hellen) Karte */
   M.routeColor = function (line) {
     if (!line) return '#7A7A7E';
-    if (line.mode === 'fern') return '#BA2619';
     if (line.mode === 'bus' && line.color === BUS_LINE) return '#4B1C76';
     return line.color;
   };

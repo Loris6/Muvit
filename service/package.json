@@ -1,0 +1,18 @@
+{
+  "name": "muvit-dienst",
+  "private": true,
+  "type": "module",
+  "description": "Muvit-Dienst: DB- und INSA-Daten (MVB) für Muvit, Wagenreihung, Web-Push",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy node test/unit.mjs"
+  },
+  "dependencies": {
+    "db-vendo-client": "6.11.3",
+    "hafas-client": "6.3.6"
+  },
+  "devDependencies": {
+    "wrangler": "4.154.0"
+  }
+}

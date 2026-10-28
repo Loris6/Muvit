@@ -1,0 +1,28 @@
+# Muvit-Dienst – Cloudflare Worker (kostenloser Tarif reicht). Einrichtung: README.md
+# Die GitHub-Action „Muvit-Dienst bereitstellen“ erledigt alles automatisch (KV, Schlüssel, Veröffentlichen).
+name = "muvit-dienst"
+main = "src/index.mjs"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Speicher für überwachte Verbindungen (Push) – die Action trägt die ID ein
+[[kv_namespaces]]
+binding = "WATCHES"
+id = "KV_ID"
+
+# jede Minute überwachte Verbindungen prüfen
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+# Adresse der App (für CORS)
+ALLOW_ORIGIN = "https://loris6.github.io"
+VAPID_SUBJECT = "https://loris6.github.io/Muvit/"
+# VAPID_PUBLIC und VAPID_PRIVATE kommen als Secrets (die Action erzeugt sie einmalig)
+
+# Node-Module, die im Worker nicht gebraucht werden bzw. ersetzt werden
+[alias]
+"https-proxy-agent" = "./src/stubs/empty.js"
+"db-hafas-stations" = "./src/stubs/empty.js"
+"cross-fetch" = "./src/stubs/fetch.js"
+"crypto" = "./src/stubs/crypto.js"
