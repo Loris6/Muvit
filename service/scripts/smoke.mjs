@@ -60,5 +60,10 @@ const rl = r.remarks || [];
 console.log(`  ${rl.length} Störungsmeldungen für Magdeburg`);
 rl.slice(0, 8).forEach((x) => console.log(`  - ${x.summary} [${x.lines.map((l) => l.name).join(', ')}]${x.validUntil ? ' bis ' + x.validUntil : ''}`));
 
+// Erreichbarkeit der Schnittstellen von Cloudflare aus
+const dg = await get('/diag');
+if (dg.train) console.log('  Zug für Probe:', JSON.stringify(dg.train.line || dg.train));
+(dg.probes || []).forEach((p) => console.log(`  ${p.name}: ${p.error ? 'Fehler ' + p.error : p.status + ' ' + p.type} (${p.ms} ms) ${p.body || ''}`));
+
 console.log(failed ? `\n${failed} Abfrage(n) fehlgeschlagen` : '\nAlle Abfragen erfolgreich');
 process.exit(failed ? 1 : 0);

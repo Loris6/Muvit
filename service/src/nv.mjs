@@ -14,6 +14,8 @@ function nv(env) {
   return client;
 }
 export const _setClient = (c) => { client = c; clientKey = ''; };
+/** INSA-Client (auch für Züge: INSA kennt den ganzen Bahnverkehr mit Echtzeit der DB) */
+export const insaClient = (env) => nv(env);
 
 const nRemark = (r) => ({ type: r.type || 'hint', code: r.code || null, summary: r.summary || null, text: r.text || '' });
 const nLine = (l) => (l ? { name: l.name || '', productName: l.productName || '', product: l.product || '', fahrtNr: l.fahrtNr || '', operator: (l.operator && l.operator.name) || '' } : null);

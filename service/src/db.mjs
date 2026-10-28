@@ -2,11 +2,14 @@
    Quellen der Reihe nach (die zuletzt erfolgreiche zuerst), damit eine gesperrte Schnittstelle nicht alles lahmlegt:
    1. bahn.de (db-vendo-client, Profil „dbweb“)
    2. DB Navigator (db-vendo-client, Profil „dbnav“)
-   3. db.transport.rest (öffentliche REST-Schnittstelle, gleiches Datenformat) */
+   3. INSA (hafas-client, Profil „insa“) – enthält alle Züge mit Echtzeit der DB
+   4. db.transport.rest (öffentliche REST-Schnittstelle, gleiches Datenformat)
+   Gesperrte oder langsame Quellen werden 10 Minuten übersprungen. */
 import { createClient } from 'db-vendo-client';
 import { profile as dbweb } from 'db-vendo-client/p/dbweb/index.js';
 import { profile as dbnav } from 'db-vendo-client/p/dbnav/index.js';
 import { UA, num, normName, pick } from './util.mjs';
+import { insaClient } from './nv.mjs';
 
 const PROFILES = { dbweb, dbnav };
 const clients = {};
@@ -42,21 +45,31 @@ let testClient = null;
 export const _setClient = (c) => { testClient = c; };
 const errText = (e) => String((e && (e.message || e.code)) || e || 'Fehler').slice(0, 160);
 
+const SOURCES = ['dbweb', 'dbnav', 'insa', 'rest'];
+const down = {};
+const SKIP = 10 * 60000, TIMEOUT = 6000;
+const withTimeout = (p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('Zeitüberschreitung')), TIMEOUT))]);
+const clientFor = (env, name) => (name === 'rest' ? rest(env) : name === 'insa' ? insaClient(env) : db(env, name));
+
 /** Abfrage über die Quellen der Reihe nach; liefert das erste brauchbare Ergebnis.
     Mit „allowNull“: Haben Quellen geantwortet, aber nichts gefunden, ist das Ergebnis null statt eines Fehlers. */
 async function tryAll(env, fn, allowNull) {
   if (testClient) return fn(testClient, 'test');
-  const names = ['dbweb', 'dbnav', 'rest'];
-  const order = preferred ? [preferred].concat(names.filter((n) => n !== preferred)) : names;
+  const names = String(env.DB_SOURCES || SOURCES.join(',')).split(',').map((x) => x.trim()).filter((x) => SOURCES.includes(x));
+  const now = Date.now();
+  const up = names.filter((n) => !(down[n] && now - down[n] < SKIP));
+  const list = up.length ? up : names;
+  const order = preferred && list.includes(preferred) ? [preferred].concat(list.filter((n) => n !== preferred)) : list;
   const errs = [];
   let answered = false;
   for (const name of order) {
     try {
-      const r = await fn(name === 'rest' ? rest(env) : db(env, name), name);
+      const r = await withTimeout(fn(clientFor(env, name), name));
+      delete down[name];
       if (r != null) { preferred = name; return r; }
       answered = true;
       errs.push(name + ': nichts gefunden');
-    } catch (e) { errs.push(name + ': ' + errText(e)); }
+    } catch (e) { down[name] = Date.now(); errs.push(name + ': ' + errText(e)); }
   }
   if (allowNull && answered) return null;
   const err = new Error('Deutsche Bahn: ' + errs.join(' · '));
